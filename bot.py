@@ -263,7 +263,7 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     text = message.lower().strip()
 
     # TikTok: inspect public video metadata when a link is supplied.
-    tiktok_match = re.search(r"https?://(?:www\\.)?(?:vm\\.)?tiktok\\.com/[^\\s<>]+", message)
+    tiktok_match = re.search(r"https?://(?:www\.)?(?:vm\.)?tiktok\.com/[^\s<>]+", message)
     if tiktok_match:
         try:
             return await inspect_tiktok(tiktok_match.group(0).rstrip(".,!?")) 
@@ -273,13 +273,13 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
 
     # Image search: return direct image links that Discord can preview.
     if any(word in text for word in ("tìm ảnh", "gửi ảnh", "cho xem ảnh", "hình ảnh", "ảnh về")):
-        query = re.sub(r"^(tìm|gửi|cho xem)\\s*(mình|tôi|tớ)?\\s*(ảnh|hình ảnh)?\\s*(về|của)?\\s*", "", message, flags=re.I).strip()
+        query = re.sub(r"^(tìm|gửi|cho xem)\s*(mình|tôi|tớ)?\s*(ảnh|hình ảnh)?\s*(về|của)?\s*", "", message, flags=re.I).strip()
         query = query or message
         try:
             images = await asyncio.to_thread(search_images, query, 3)
             urls = [item.get("image") for item in images if item.get("image")]
             if urls:
-                return "Mình tìm được vài hình liên quan đây 🖼️\\n" + "\\n".join(urls[:3])
+                return "Mình tìm được vài hình liên quan đây 🖼️\n" + "\n".join(urls[:3])
             return "Mình chưa tìm được ảnh phù hợp. Thử mô tả chủ đề cụ thể hơn nhé."
         except Exception as exc:
             print(f"Image search failed: {type(exc).__name__}: {exc}")
@@ -306,7 +306,7 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
         return (
             "Mình chưa tìm được nguồn phù hợp cho câu hỏi này. "
             "Bạn thử đổi cách diễn đạt hoặc thêm tên chủ đề/địa điểm cụ thể nhé. "
-            "Bạn cũng có thể dùng /search kèm từ khóa ngắn hơn."
+            "Bạn thử hỏi lại bằng từ khóa ngắn và cụ thể hơn nhé."
         )
 
     lines = [f"**Mình tìm được thông tin liên quan đến:** {message[:220]}", ""]
