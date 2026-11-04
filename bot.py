@@ -24,12 +24,12 @@ web = Flask(__name__)
 
 @web.get("/")
 def home():
-    return "Bot 3 is alive!", 200
+    return "[GKC]-AI is alive!", 200
 
 
 @web.get("/health")
 def health():
-    return jsonify(status="ok", bot="Bot 3"), 200
+    return jsonify(status="ok", bot="[GKC]-AI"), 200
 
 
 def run_web():
@@ -139,7 +139,7 @@ def fetch_public_page(url: str) -> dict:
     response = requests.get(
         url,
         timeout=(5, 12),
-        headers={"User-Agent": "Bot3-Discord-Reader/1.0"},
+        headers={"User-Agent": "GKCAI-Discord-Reader/1.0"},
         stream=True,
         allow_redirects=True,
     )
@@ -227,7 +227,7 @@ def should_search_message(message: str) -> bool:
 
 
 async def smart_reply(message: str, memories: list[str], history=None) -> str:
-    """Answer from local handlers or public web results. No paid AI/API key is used."""
+    """[GKC]-AI: friendly Vietnamese assistant using local reasoning helpers and public web evidence; no paid AI/API key."""
     history = history or []
     local = make_reply(message, memories, history)
     text = message.lower().strip()
@@ -272,9 +272,8 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
         )
 
     lines.append(
-        "Mình đang chạy chế độ không dùng API AI trả phí, nên phần trên là thông tin "
-        "và mô tả từ các trang tìm kiếm, chưa phải bài phân tích do mô hình ngôn ngữ tạo ra. "
-        "Hãy mở nguồn để kiểm tra chi tiết."
+        "— [GKC]-AI đang dùng chế độ không cần API: mình tổng hợp các đoạn mô tả tìm kiếm, "
+        "chưa thể suy luận linh hoạt như một mô hình ngôn ngữ lớn. Hãy mở nguồn để kiểm tra chi tiết."
     )
     return "\n".join(lines)[:1850]
 
@@ -344,15 +343,15 @@ def make_reply(message: str, memories: list[str], history=None) -> str:
             answer = "Phép tính này hơi vượt phạm vi máy tính mini của mình. Bạn kiểm tra lại biểu thức nhé."
     elif any(word in text for word in ("xin chào", "chào", "hello", "hi ", "hey")):
         answer = choose([
-            "Chào bạn! Bot 3 đã online, hôm nay mình giúp gì được nào? 😎",
+            "Chào bạn! [GKC]-AI đã online, hôm nay mình giúp gì được nào? 😎",
             "Hello! Quăng câu hỏi đây, mình đang nghe. 👋",
             "Chào nha! Bộ não Python đã khởi động, cà phê thì chưa. ☕",
             "Ê chào bạn! Hôm nay Discord có chuyện gì vui?",
         ])
     elif any(phrase in text for phrase in ("bạn là ai", "mày là ai", "cậu là ai")):
         answer = choose([
-            "Mình là Bot 3, trợ lý Discord tự xây: nhẹ, vui tính và đang học cách hữu ích hơn. 🤖",
-            "Bot 3 đây! Mình chạy bằng Python, có trí nhớ SQLite và một chút khiếu hài hước.",
+            "Mình là [GKC]-AI — trợ lý Discord của bạn: thân thiện, tò mò, kiên nhẫn và thích giải quyết vấn đề. 🤖",
+            "[GKC]-AI đây! Mình có thể trò chuyện, tìm web, đọc trang, tra cứu code và ghi nhớ điều bạn cho phép. 😎",
         ])
     elif any(word in text for word in ("cảm ơn", "thanks", "thank you")):
         answer = choose([
@@ -411,18 +410,18 @@ def make_reply(message: str, memories: list[str], history=None) -> str:
         ])
     else:
         answer = choose([
-            "Mình đang nghe đây. Bạn muốn mình phân tích, giải thích hay đưa ra ý tưởng cho chuyện đó?",
-            "Mình chưa bắt được hết ý. Bạn nói rõ hơn một chút nhé, mình sẽ thử giúp.",
-            "Có vẻ đây là chủ đề mới với bộ não offline của mình. Kể thêm bối cảnh đi, mình cùng suy luận nhé.",
-            "Mình có thể trao đổi tiếp về chuyện này. Phần nào bạn muốn tìm hiểu trước?",
-            "Góc nhìn thú vị đó! Bạn muốn đào sâu điểm nào?",
+            "Mình đang nghe đây. Ta thử tách vấn đề thành mục tiêu, dữ kiện và cách giải quyết nhé. Bạn muốn bắt đầu từ đâu?",
+            "Mình chưa bắt được hết ý. Bạn nói rõ hơn một chút; mình sẽ hỏi đúng phần còn thiếu thay vì đoán mò.",
+            "Chủ đề này đáng đào sâu đấy! Kể thêm bối cảnh, mình sẽ cùng bạn phân tích từng bước. 😎",
+            "Mình có thể giúp lên ý tưởng, so sánh lựa chọn hoặc tìm nguồn đáng tin. Bạn muốn hướng nào?",
+            "Cứ nói tự nhiên nhé. Mình sẽ cố gắng trả lời rõ ràng, trung thực và có chút hài hước khi phù hợp. 😄",
         ])
 
     if memories:
         answer += "\n\nMình vẫn nhớ: " + " • ".join(memories[-3:])
     return answer
 
-class Bot3(discord.Client):
+class GKCAI(discord.Client):
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -433,12 +432,12 @@ class Bot3(discord.Client):
         await self.tree.sync()
 
 
-client = Bot3()
+client = GKCAI()
 
 
 @client.event
 async def on_ready():
-    print(f"Bot 3 đã đăng nhập: {client.user} (ID: {client.user.id})")
+    print(f"[GKC]-AI đã đăng nhập: {client.user} (ID: {client.user.id})")
 
 
 def set_ai_channel(guild_id: int, channel_id: int):
@@ -466,7 +465,7 @@ def clear_ai_channel(guild_id: int):
         return cursor.rowcount > 0
 
 
-@client.tree.command(name="set_ai_channel", description="Đặt kênh tự động trò chuyện với Bot 3")
+@client.tree.command(name="set_ai_channel", description="Đặt kênh tự động trò chuyện với [GKC]-AI")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(channel="Kênh văn bản dùng làm kênh AI")
 async def set_ai_channel_command(interaction: discord.Interaction, channel: discord.TextChannel):
@@ -475,7 +474,7 @@ async def set_ai_channel_command(interaction: discord.Interaction, channel: disc
         return
     set_ai_channel(interaction.guild.id, channel.id)
     await interaction.response.send_message(
-        f"Đã đặt {channel.mention} làm kênh AI. Mọi tin nhắn mới trong kênh đó sẽ được Bot 3 trả lời."
+        f"Đã đặt {channel.mention} làm kênh AI. Mọi tin nhắn mới trong kênh đó sẽ được [GKC]-AI trả lời."
     )
 
 
@@ -490,8 +489,8 @@ async def delete_ai_channel_command(interaction: discord.Interaction):
     await interaction.response.send_message(message)
 
 
-@client.tree.command(name="chat", description="Trò chuyện với Bot 3")
-@app_commands.describe(message="Điều bạn muốn nói với Bot 3")
+@client.tree.command(name="chat", description="Trò chuyện với [GKC]-AI")
+@app_commands.describe(message="Điều bạn muốn nói với [GKC]-AI")
 async def chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     memories = get_memories(interaction.user.id)
@@ -601,8 +600,8 @@ async def code_command(interaction: discord.Interaction, question: str):
     await interaction.followup.send("\n\n".join(lines)[:1900])
 
 
-@client.tree.command(name="remember", description="Bảo Bot 3 ghi nhớ một điều")
-@app_commands.describe(note="Điều Bot 3 cần ghi nhớ")
+@client.tree.command(name="remember", description="Bảo [GKC]-AI ghi nhớ một điều")
+@app_commands.describe(note="Điều [GKC]-AI cần ghi nhớ")
 async def remember(interaction: discord.Interaction, note: str):
     note = note.strip()
     if not note:
@@ -615,7 +614,7 @@ async def remember(interaction: discord.Interaction, note: str):
     await interaction.response.send_message("Đã ghi nhớ điều này rồi nhé! 🧠")
 
 
-@client.tree.command(name="forget", description="Xóa những điều Bot 3 đã nhớ về bạn")
+@client.tree.command(name="forget", description="Xóa những điều [GKC]-AI đã nhớ về bạn")
 async def forget(interaction: discord.Interaction):
     count = delete_memories(interaction.user.id)
     history_count = clear_chat_history(interaction.user.id)
@@ -624,7 +623,7 @@ async def forget(interaction: discord.Interaction):
     )
 
 
-@client.tree.command(name="profile", description="Xem những điều Bot 3 đang nhớ về bạn")
+@client.tree.command(name="profile", description="Xem những điều [GKC]-AI đang nhớ về bạn")
 async def profile(interaction: discord.Interaction):
     memories = get_memories(interaction.user.id, limit=20)
     if not memories:
@@ -637,10 +636,10 @@ async def profile(interaction: discord.Interaction):
     await interaction.response.send_message("Đây là những điều mình nhớ:\n" + lines, ephemeral=True)
 
 
-@client.tree.command(name="help", description="Xem hướng dẫn sử dụng Bot 3")
+@client.tree.command(name="help", description="Xem hướng dẫn sử dụng [GKC]-AI")
 async def help_command(interaction: discord.Interaction):
     await interaction.response.send_message(
-        "Bot 3 — hướng dẫn\n"
+        "[GKC]-AI — hướng dẫn\n"
         "/chat message: Trò chuyện với bot.\n"
         "/search query: Tìm kiếm trên Internet.\n"
         "/read url: Đọc nội dung trang web.\n"
@@ -652,7 +651,7 @@ async def help_command(interaction: discord.Interaction):
         "/set_ai_channel channel: Cài kênh AI (quản trị viên).\n"
         "/delete_ai_channel: Tắt kênh AI (quản trị viên).\n"
         "/help: Hiện hướng dẫn này.\n\n"
-        "Bot 3 không cần API key AI. Bot tìm kiếm web, đọc trang, tóm tắt trích xuất "
+        "[GKC]-AI không cần API key AI. Bot tìm kiếm web, đọc trang, tóm tắt trích xuất "
         "và tra cứu tài liệu code. Đây chưa phải mô hình AI tạo sinh như ChatGPT.",
         ephemeral=True,
     )
