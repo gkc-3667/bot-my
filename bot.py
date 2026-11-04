@@ -355,6 +355,58 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     return "\n".join(lines)[:1850]
 
 
+
+def offline_expert_reply(message: str, history=None):
+    """Kỹ năng offline thực dụng: chẩn đoán lỗi, giải thích khái niệm và tạo mẫu code."""
+    text = message.strip()
+    low = text.lower()
+    history = history or []
+
+    error_patterns = [
+        (r"ModuleNotFoundError: No module named ['\"]([^'\"]+)", "Thiếu thư viện", "Thêm tên thư viện vào requirements.txt, cài lại dependencies rồi khởi động bot."),
+        (r"NameError: name ['\"]([^'\"]+)['\"] is not defined", "Biến hoặc hàm chưa được định nghĩa", "Kiểm tra chính tả tên biến/hàm, phạm vi khai báo và thứ tự chạy."),
+        (r"SyntaxError:", "Lỗi cú pháp Python", "Kiểm tra dấu ngoặc, dấu hai chấm và dấu nháy ở dòng được báo lỗi hoặc ngay phía trước."),
+        (r"IndentationError:", "Lỗi thụt lề", "Dùng 4 dấu cách nhất quán, tránh trộn tab và spaces."),
+        (r"RuntimeError: Thiếu biến môi trường DISCORD_TOKEN", "Bot chưa nhận token Discord", "Trong Environment/Variables của host, tạo DISCORD_TOKEN và dán token vào Value. Không gửi token cho bất kỳ ai."),
+        (r"Connection in use|Address already in use|Errno 98", "Cổng đang được tiến trình khác sử dụng", "Không chạy hai server cùng cổng. Dừng tiến trình cũ hoặc dùng PORT mà host cấp."),
+        (r"HTTP Error 404|Not Found", "Đường dẫn trả về 404", "Kiểm tra URL và route. Trang gốc và endpoint /health là hai đường dẫn khác nhau."),
+        (r"401 Unauthorized|Invalid.*token|Improper token", "Token không hợp lệ", "Tạo lại token trong Discord Developer Portal, cập nhật biến môi trường và khởi động lại. Không đăng token lên chat."),
+        (r"403 Forbidden|Missing Permissions", "Bot thiếu quyền", "Cấp View Channel, Send Messages và Read Message History; kiểm tra quyền riêng của kênh."),
+    ]
+    for pattern, title, fix in error_patterns:
+        match = re.search(pattern, text, re.I)
+        if match:
+            detail = f" ({match.group(1)})" if match.lastindex else ""
+            return f"**Mình phân tích lỗi: {title}{detail}.**\\n\\n**Cách xử lý:** {fix}\\n\\nNếu vẫn lỗi, gửi 15–30 dòng log quanh traceback; nhớ che token và mật khẩu."
+
+    explainers = [
+        (("async", "asyncio", "bất đồng bộ"), "Trong Python, async khai báo hàm bất đồng bộ và await chờ thao tác I/O mà không chặn toàn bộ event loop. Với Discord bot, cách này giúp bot vẫn nhận sự kiện khi đang chờ mạng hoặc database."),
+        (("api là gì", "api nghĩa là gì"), "API là cách hai chương trình giao tiếp theo một quy ước. Ví dụ bot gửi yêu cầu đến dịch vụ, nhận dữ liệu JSON rồi dùng dữ liệu đó trả lời thành viên."),
+        (("json là gì", "json nghĩa là gì"), "JSON là định dạng dữ liệu dạng key–value và danh sách. Python có module json để đọc và ghi dữ liệu này."),
+        (("sqlite", "sqlite là gì", "cơ sở dữ liệu"), "SQLite là cơ sở dữ liệu gọn nhẹ lưu trong một file. Nó phù hợp để bot lưu cấu hình kênh, lịch sử chat và ghi nhớ mà không cần máy chủ database riêng."),
+        (("discord intent", "message content intent", "intent là gì"), "Intent là nhóm sự kiện/dữ liệu Discord cho phép bot nhận. Muốn đọc nội dung tin nhắn, cần bật Message Content Intent trong Developer Portal và intents.message_content = True trong code."),
+        (("biến môi trường", "environment variable"), "Biến môi trường là cấu hình truyền cho chương trình khi chạy. Dùng nó để giữ DISCORD_TOKEN ngoài mã nguồn, tránh đưa bí mật lên GitHub."),
+    ]
+    for triggers, explanation in explainers:
+        if any(trigger in low for trigger in triggers):
+            return explanation + "\\n\\nBạn muốn mình đưa ví dụ Python thực tế cho phần này không?"
+
+    if any(term in low for term in ("viết code", "viết mã", "tạo code", "tạo mã", "cho code", "cho mình code")):
+        if any(term in low for term in ("đọc file", "đọc tệp", "đọc txt")):
+            return "Mẫu Python đọc file UTF-8:\\n\\n    from pathlib import Path\\n    path = Path('data.txt')\\n    try:\\n        print(path.read_text(encoding='utf-8'))\\n    except FileNotFoundError:\\n        print('Không tìm thấy file:', path)\\n    except OSError as exc:\\n        print('Không thể đọc file:', exc)\\n\\nĐổi data.txt thành đường dẫn file của bạn."
+        if any(term in low for term in ("ghi file", "lưu file", "tạo file")):
+            return "Mẫu Python ghi file UTF-8:\\n\\n    from pathlib import Path\\n    path = Path('data.txt')\\n    path.write_text('Xin chào từ GKC-AI!', encoding='utf-8')\\n    print('Đã lưu:', path.resolve())\\n\\nLưu ý: write_text sẽ ghi đè nội dung cũ."
+        if any(term in low for term in ("lệnh slash", "slash command", "lệnh discord")):
+            return "Mẫu slash command discord.py: import discord; from discord import app_commands; tạo discord.Client và app_commands.CommandTree; dùng @bot.tree.command(name='hello') cho hàm async; trong hàm gọi interaction.response.send_message('Xin chào!'). Đây là khung hướng dẫn, cần ghép vào client hiện tại chứ không tạo client thứ hai."
+        return "Mình có thể viết code, nhưng cần biết chức năng cụ thể, ngôn ngữ và nơi chạy (Discord, web hay Python thường). Gửi code hiện tại nếu có, nhớ che token/mật khẩu nhé."
+
+    if history and any(p in low for p in ("nói tiếp", "tiếp đi", "ý đó", "cái vừa nói", "giải thích thêm")):
+        last_bot = next((content for role, content in reversed(history) if role == "assistant"), "")
+        if last_bot:
+            return f'Mình đang nối tiếp câu trả lời trước: "{last_bot[:450]}"\\n\\nBạn muốn đào sâu nguyên nhân, ví dụ hay cách thực hiện?'
+    return None
+
+
 _last_reply_by_group = {}
 
 def make_reply(message: str, memories: list[str], history=None) -> str:
@@ -366,6 +418,10 @@ def make_reply(message: str, memories: list[str], history=None) -> str:
     history = history or []
     previous_user = next((content for role, content in reversed(history) if role == "user"), "")
     previous_bot = next((content for role, content in reversed(history) if role == "assistant"), "")
+
+    expert_answer = offline_expert_reply(original, history)
+    if expert_answer:
+        return expert_answer[:1800]
 
     def choose(options):
         key = tuple(options)
