@@ -3,6 +3,8 @@ import os
 import random
 import sqlite3
 import threading
+import ipaddress
+import socket
 from datetime import datetime, timezone
 
 import discord
@@ -10,6 +12,8 @@ from dotenv import load_dotenv
 from discord import app_commands
 from flask import Flask, jsonify
 from ddgs import DDGS
+import requests
+from bs4 import BeautifulSoup
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -111,6 +115,100 @@ def run_web_search(query: str, limit: int = 6):
         return []
     with DDGS(timeout=12) as search:
         return list(search.text(query, max_results=limit))
+
+
+
+def fetch_public_page(url: str) -> dict:
+    """Fetch a public HTTP(S) page safely, avoiding local/private network targets."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("Chỉ hỗ trợ URL http hoặc https.")
+    host = parsed.hostname.lower()
+    if host in ("localhost",) or host.endswith((".local", ".internal")):
+        raise ValueError("Không truy cập địa chỉ nội bộ.")
+    try:
+        addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80))
+        for item in addresses:
+            ip = ipaddress.ip_address(item[4][0])
+            if not ip.is_global:
+                raise ValueError("Không truy cập địa chỉ IP riêng hoặc nội bộ.")
+    except socket.gaierror as exc:
+        raise ValueError("Không phân giải được tên miền.") from exc
+
+    response = requests.get(
+        url,
+        timeout=(5, 12),
+        headers={"User-Agent": "Bot3-Discord-Reader/1.0"},
+        stream=True,
+        allow_redirects=True,
+    )
+    response.raise_for_status()
+    final = urlparse(response.url)
+    if final.scheme not in ("http", "https") or not final.hostname:
+        raise ValueError("Đường dẫn chuyển hướng không hợp lệ.")
+    final_host = final.hostname.lower()
+    if final_host in ("localhost",) or final_host.endswith((".local", ".internal")):
+        raise ValueError("Trang chuyển hướng tới địa chỉ nội bộ.")
+    try:
+        for item in socket.getaddrinfo(final_host, final.port or (443 if final.scheme == "https" else 80)):
+            if not ipaddress.ip_address(item[4][0]).is_global:
+                raise ValueError("Trang chuyển hướng tới IP riêng hoặc nội bộ.")
+    except socket.gaierror as exc:
+        raise ValueError("Không phân giải được tên miền đích.") from exc
+
+    content_type = response.headers.get("Content-Type", "").lower()
+    if "html" not in content_type and "text/plain" not in content_type:
+        response.close()
+        raise ValueError("Đường dẫn không phải trang HTML hoặc văn bản.")
+    chunks = []
+    total = 0
+    for chunk in response.iter_content(16384):
+        total += len(chunk)
+        if total > 1_500_000:
+            break
+        chunks.append(chunk)
+    response.close()
+    raw = b"".join(chunks)
+    soup = BeautifulSoup(raw, "html.parser")
+    for node in soup(["script", "style", "nav", "footer", "header", "noscript", "svg"]):
+        node.decompose()
+    title = soup.title.get_text(" ", strip=True) if soup.title else final.netloc
+    main = soup.find("main") or soup.find("article") or soup.body or soup
+    text = " ".join(main.stripped_strings)
+    text = " ".join(text.split())
+    return {"title": title[:200], "url": response.url, "text": text[:12000]}
+
+
+def extractive_summary(text: str, max_sentences: int = 6) -> str:
+    """Create a lightweight extractive summary; it does not invent new facts."""
+    import re
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?。])\s+", text) if len(s.strip()) > 35]
+    if not sentences:
+        return text[:1800]
+    words = re.findall(r"[a-zA-ZÀ-ỹ0-9]{3,}", text.lower())
+    stop = {
+        "của", "những", "được", "trong", "với", "một", "cho", "theo", "này",
+        "that", "this", "from", "with", "have", "will", "your", "about",
+        "the", "and", "for", "are", "was", "you", "but", "not",
+    }
+    freq = {}
+    for word in words:
+        if word not in stop:
+            freq[word] = freq.get(word, 0) + 1
+    ranked = []
+    for index, sentence in enumerate(sentences):
+        terms = re.findall(r"[a-zA-ZÀ-ỹ0-9]{3,}", sentence.lower())
+        score = sum(freq.get(term, 0) for term in terms if term not in stop)
+        score = score / max(1, len(terms) ** 0.5)
+        ranked.append((score, index, sentence))
+    chosen = sorted(ranked, reverse=True)[:max_sentences]
+    chosen.sort(key=lambda item: item[1])
+    return "\n".join(f"• {sentence}" for _, _, sentence in chosen)[:1800]
+
+
+async def read_and_summarize(url: str) -> dict:
+    return await asyncio.to_thread(fetch_public_page, url)
 
 
 def should_search_message(message: str) -> bool:
@@ -442,6 +540,67 @@ async def search_command(interaction: discord.Interaction, query: str):
     await interaction.followup.send("\n\n".join(lines)[:1900])
 
 
+
+@client.tree.command(name="read", description="Đọc nội dung một trang web công khai")
+@app_commands.describe(url="Đường dẫn trang web cần đọc")
+async def read_command(interaction: discord.Interaction, url: str):
+    await interaction.response.defer(thinking=True)
+    try:
+        page = await read_and_summarize(url)
+    except Exception as exc:
+        print(f"Page read failed: {type(exc).__name__}: {exc}")
+        await interaction.followup.send(
+            "Mình không đọc được trang này. Hãy kiểm tra URL, quyền truy cập hoặc thử một trang công khai khác."
+        )
+        return
+    content = page["text"][:1450] or "Trang này không có nội dung văn bản đọc được."
+    await interaction.followup.send(
+        f"**{page['title']}**\n{page['url']}\n\n{content}"[:1900]
+    )
+
+
+@client.tree.command(name="summarize", description="Tóm tắt nội dung từ một trang web")
+@app_commands.describe(url="Đường dẫn trang web cần tóm tắt")
+async def summarize_command(interaction: discord.Interaction, url: str):
+    await interaction.response.defer(thinking=True)
+    try:
+        page = await read_and_summarize(url)
+    except Exception as exc:
+        print(f"Page summary failed: {type(exc).__name__}: {exc}")
+        await interaction.followup.send(
+            "Mình chưa thể đọc trang đó. Hãy thử URL công khai khác nhé."
+        )
+        return
+    summary = extractive_summary(page["text"])
+    await interaction.followup.send(
+        f"**Tóm tắt: {page['title']}**\n{summary}\n\nNguồn: {page['url']}"[:1900]
+    )
+
+
+@client.tree.command(name="code", description="Tìm tài liệu và ví dụ lập trình")
+@app_commands.describe(question="Ngôn ngữ, thư viện hoặc vấn đề code cần tìm")
+async def code_command(interaction: discord.Interaction, question: str):
+    await interaction.response.defer(thinking=True)
+    query = f"{question} programming documentation code example"
+    try:
+        results = await asyncio.to_thread(run_web_search, query, 5)
+    except Exception as exc:
+        print(f"Code search failed: {type(exc).__name__}: {exc}")
+        await interaction.followup.send("Tìm tài liệu code thất bại lúc này. Thử lại sau nhé.")
+        return
+    if not results:
+        await interaction.followup.send("Chưa tìm thấy tài liệu phù hợp. Thử thêm tên ngôn ngữ hoặc thư viện nhé.")
+        return
+    lines = [f"**Tài liệu lập trình cho:** {question[:160]}", ""]
+    for item in results[:5]:
+        title = item.get("title") or "Tài liệu"
+        body = item.get("body") or ""
+        url = item.get("href") or ""
+        lines.append(f"**{title[:150]}**\n{body[:250]}\n{url}")
+    lines.append("\nĐây là kết quả và tài liệu tham khảo; hãy kiểm tra phiên bản thư viện trước khi chạy code.")
+    await interaction.followup.send("\n\n".join(lines)[:1900])
+
+
 @client.tree.command(name="remember", description="Bảo Bot 3 ghi nhớ một điều")
 @app_commands.describe(note="Điều Bot 3 cần ghi nhớ")
 async def remember(interaction: discord.Interaction, note: str):
@@ -491,7 +650,8 @@ async def help_command(interaction: discord.Interaction):
         "/set_ai_channel channel: Đặt kênh tự động trả lời (quản trị viên).\n"
         "/delete_ai_channel: Xóa kênh AI (quản trị viên).\n\n"
         "Bot 3 tìm kiếm web không cần API key AI; trả kết quả kèm nguồn để bạn kiểm tra.\n"
-        "/forget cũng xóa lịch sử trò chuyện của bạn.",
+        "/forget cũng xóa lịch sử trò chuyện của bạn.\\n"
+        "Chế độ không cần API AI: tìm web, đọc trang, tóm tắt trích xuất và tìm tài liệu code.",
         ephemeral=True,
     )
 
