@@ -257,80 +257,87 @@ def search_images(query: str, limit: int = 3):
 
 
 async def smart_reply(message: str, memories: list[str], history=None) -> str:
-    """[GKC]-AI: friendly Vietnamese assistant using local reasoning helpers and public web evidence; no paid AI/API key."""
+    """Research-first assistant: conversational memory, safe math, web sources and extractive reading."""
     history = history or []
-    local = make_reply(message, memories, history)
-    text = message.lower().strip()
+    original = message.strip()
+    text = original.lower()
 
-    # TikTok: inspect public video metadata when a link is supplied.
-    tiktok_match = re.search(r"https?://(?:www\.)?(?:vm\.)?tiktok\.com/[^\s<>]+", message)
+    # Public TikTok links: inspect metadata only; do not download the video.
+    tiktok_match = re.search(r"https?://(?:www\.)?(?:vm\.)?tiktok\.com/[^\s<>]+", original)
     if tiktok_match:
         try:
-            return await inspect_tiktok(tiktok_match.group(0).rstrip(".,!?")) 
+            return await inspect_tiktok(tiktok_match.group(0).rstrip(".,!?"))
         except Exception as exc:
             print(f"TikTok inspection failed: {type(exc).__name__}: {exc}")
-            return "Mình nhận ra đây là link TikTok, nhưng TikTok/host đang chặn việc đọc metadata. Bạn thử link công khai khác nhé."
+            return "Mình nhận ra link TikTok, nhưng trang đang chặn việc đọc thông tin công khai. Mình chưa thể xem/nghe toàn bộ video này."
 
-    # Image search: return direct image links that Discord can preview.
+    # Image search returns image URLs that Discord can preview.
     if any(word in text for word in ("tìm ảnh", "gửi ảnh", "cho xem ảnh", "hình ảnh", "ảnh về")):
-        query = re.sub(r"^(tìm|gửi|cho xem)\s*(mình|tôi|tớ)?\s*(ảnh|hình ảnh)?\s*(về|của)?\s*", "", message, flags=re.I).strip()
-        query = query or message
+        query = re.sub(r"^(tìm|gửi|cho xem)\s*(mình|tôi|tớ)?\s*(ảnh|hình ảnh)?\s*(về|của)?\s*", "", original, flags=re.I).strip()
         try:
-            images = await asyncio.to_thread(search_images, query, 3)
+            images = await asyncio.to_thread(search_images, query or original, 3)
             urls = [item.get("image") for item in images if item.get("image")]
             if urls:
-                return "Mình tìm được vài hình liên quan đây 🖼️\n" + "\n".join(urls[:3])
-            return "Mình chưa tìm được ảnh phù hợp. Thử mô tả chủ đề cụ thể hơn nhé."
+                return "Mình tìm được ảnh liên quan đây 🖼️\n" + "\n".join(urls[:3])
+            return "Mình chưa tìm được ảnh phù hợp. Bạn mô tả chủ thể, màu sắc hoặc phong cách nhé."
         except Exception as exc:
             print(f"Image search failed: {type(exc).__name__}: {exc}")
-            return "Tìm ảnh đang lỗi ở phía dịch vụ tìm kiếm. Bạn thử lại sau nhé."
+            return "Dịch vụ tìm ảnh đang lỗi hoặc giới hạn truy cập. Bạn thử lại sau nhé."
 
-    if any(word in text for word in ("trend tiktok", "trending tiktok", "xu hướng tiktok", "trend trên tiktok", "đú trend")):
-        message = "TikTok trends viral trending topics " + message
+    local = make_reply(original, memories, history)
+    if not should_search_message(original) or re.fullmatch(r"[\d\s.+\-*/()%]+", original):
+        return local[:1800]
 
-    if not should_search_message(message) or any(
-        phrase in text for phrase in ("+", " - ", " * ", " / ")
-    ):
-        return local[:1850]
+    query = original
+    if any(term in text for term in ("trend tiktok", "trending tiktok", "xu hướng tiktok", "trend trên tiktok", "đú trend")):
+        query = "TikTok trends viral trending topics 2026 " + original
 
     try:
-        results = await asyncio.to_thread(run_web_search, message, 6)
+        results = await asyncio.to_thread(run_web_search, query, 6)
     except Exception as exc:
         print(f"Web search failed: {type(exc).__name__}: {exc}")
-        return (
-            "Mình đã cố tìm thông tin cho câu hỏi này nhưng dịch vụ tìm kiếm hiện không phản hồi. "
-            "Bạn thử lại sau ít phút nhé. Mình không muốn đoán bừa rồi đưa thông tin sai."
-        )
+        return "Mình chưa kết nối được dịch vụ tìm kiếm. Mình không muốn đoán bừa; bạn thử lại sau nhé."
 
     if not results:
-        return (
-            "Mình chưa tìm được nguồn phù hợp cho câu hỏi này. "
-            "Bạn thử đổi cách diễn đạt hoặc thêm tên chủ đề/địa điểm cụ thể nhé. "
-            "Bạn thử hỏi lại bằng từ khóa ngắn và cụ thể hơn nhé."
-        )
+        return "Mình chưa tìm thấy nguồn đáng tin phù hợp. Bạn thử diễn đạt cụ thể hơn hoặc thêm tên chủ đề nhé."
 
-    lines = [f"**Mình tìm được thông tin liên quan đến:** {message[:220]}", ""]
-    for index, item in enumerate(results[:5], start=1):
-        title = (item.get("title") or "Kết quả tìm kiếm").strip()
-        body = (item.get("body") or "").strip()
+    # Read up to two public result pages for better context; snippets remain as fallback.
+    source_blocks = []
+    for item in results[:2]:
         url = (item.get("href") or "").strip()
         if not url:
             continue
-        lines.append(f"**{index}. {title[:180]}**")
-        if body:
-            lines.append(body[:420])
-        lines.append(url)
-        lines.append("")
+        try:
+            page = await asyncio.to_thread(fetch_public_page, url)
+            if page.get("text"):
+                source_blocks.append((page.get("title") or item.get("title") or "Nguồn", page["url"], page["text"]))
+        except Exception as exc:
+            print(f"Source read skipped: {type(exc).__name__}: {exc}")
 
-    if len(lines) <= 2:
-        return (
-            "Mình tìm thấy kết quả nhưng các trang không cung cấp đường dẫn đọc được. "
-            "Bạn thử /search với từ khóa khác nhé."
-        )
+    lines = [f"**Mình đã tra cứu về: {original[:180]}**", ""]
+    if source_blocks:
+        lines.append("**Thông tin chính từ các trang đọc được:**")
+        for title, url, body in source_blocks:
+            lines.append(f"**{title[:130]}**")
+            lines.append(extractive_summary(body, 3)[:650])
+            lines.append(f"Nguồn: {url}")
+            lines.append("")
+    else:
+        lines.append("Mình chưa đọc được toàn văn các trang, nên dưới đây là mô tả từ kết quả tìm kiếm:")
+        for index, item in enumerate(results[:4], start=1):
+            title = (item.get("title") or "Kết quả").strip()
+            body = (item.get("body") or "").strip()
+            url = (item.get("href") or "").strip()
+            if url:
+                lines.append(f"**{index}. {title[:130]}**")
+                if body:
+                    lines.append(body[:330])
+                lines.append(url)
+                lines.append("")
 
-    lines.append(
-        "— Mình đã tra cứu các nguồn công khai; hãy mở liên kết để kiểm tra thông tin đầy đủ."
-    )
+    lines.append("Mình ưu tiên nguồn có thể kiểm tra; nếu các nguồn mâu thuẫn, hãy mở link để đối chiếu.")
+    if memories:
+        lines.append("Ghi nhớ liên quan của bạn: " + " • ".join(memories[-2:]))
     return "\n".join(lines)[:1850]
 
 
@@ -521,75 +528,43 @@ def clear_ai_channel(guild_id: int):
         return cursor.rowcount > 0
 
 
-@client.tree.command(name="ai", description="Trò chuyện, tìm kiếm, xem TikTok và tìm ảnh với [GKC]-AI")
-@app_commands.describe(message="Câu hỏi, link TikTok hoặc yêu cầu tìm ảnh")
-async def ai_command(interaction: discord.Interaction, message: str):
-    await interaction.response.defer(thinking=True)
-    memories = get_memories(interaction.user.id)
-    history = get_chat_history(interaction.user.id)
-    answer = await smart_reply(message, memories, history)
-    save_chat_turn(interaction.user.id, message, answer)
-    await interaction.followup.send(answer[:1900])
+@client.tree.command(name="kenhai", description="Đặt kênh hiện tại làm kênh trò chuyện [GKC]-AI")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def kenhai(interaction: discord.Interaction):
+    if interaction.guild is None or not isinstance(interaction.channel, discord.TextChannel):
+        await interaction.response.send_message("Lệnh này chỉ dùng trong kênh văn bản của máy chủ.", ephemeral=True)
+        return
+    set_ai_channel(interaction.guild.id, interaction.channel.id)
+    await interaction.response.send_message(
+        f"Đã đặt {interaction.channel.mention} làm kênh [GKC]-AI. Mọi người có thể nhắn tin trực tiếp tại đây."
+    )
 
 
-@client.tree.command(name="kenh_ai", description="Cài kênh AI; bỏ trống để tắt kênh (quản trị viên)")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(channel="Chọn kênh để bật; bỏ trống để tắt")
-async def ai_channel_command(interaction: discord.Interaction, channel: discord.TextChannel = None):
+@client.tree.command(name="xoakenhai", description="Xóa cài đặt kênh trò chuyện [GKC]-AI")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def xoakenhai(interaction: discord.Interaction):
     if interaction.guild is None:
         await interaction.response.send_message("Lệnh này chỉ dùng trong máy chủ.", ephemeral=True)
         return
-    if channel is None:
-        removed = clear_ai_channel(interaction.guild.id)
-        text = "Đã tắt kênh AI." if removed else "Máy chủ chưa cài kênh AI."
-    else:
-        set_ai_channel(interaction.guild.id, channel.id)
-        text = f"Đã bật [GKC]-AI tại {channel.mention}. Thành viên có thể nhắn trực tiếp ở đó."
-    await interaction.response.send_message(text)
-
-
-@client.tree.command(name="nho", description="Lưu, xem hoặc xóa trí nhớ riêng của bạn")
-@app_commands.describe(action="Chọn thao tác", note="Nội dung cần lưu (chỉ dùng khi chọn lưu)")
-@app_commands.choices(action=[
-    app_commands.Choice(name="Lưu ghi nhớ", value="luu"),
-    app_commands.Choice(name="Xem ghi nhớ", value="xem"),
-    app_commands.Choice(name="Xóa tất cả", value="xoa"),
-])
-async def memory_command(interaction: discord.Interaction, action: app_commands.Choice[str], note: str = None):
-    if action.value == "luu":
-        note = (note or "").strip()
-        if not note:
-            await interaction.response.send_message("Bạn hãy nhập nội dung cần lưu vào ô note nhé.", ephemeral=True)
-            return
-        if len(note) > 500:
-            await interaction.response.send_message("Ghi chú tối đa 500 ký tự nhé.", ephemeral=True)
-            return
-        save_memory(interaction.user.id, note)
-        await interaction.response.send_message("Mình đã lưu điều này rồi nhé! 🧠", ephemeral=True)
-    elif action.value == "xem":
-        memories = get_memories(interaction.user.id, limit=20)
-        result = "\\n".join(f"• {item}" for item in memories) if memories else "Mình chưa lưu điều gì về bạn."
-        await interaction.response.send_message(result[:1800], ephemeral=True)
-    else:
-        count = delete_memories(interaction.user.id)
-        history_count = clear_chat_history(interaction.user.id)
-        await interaction.response.send_message(
-            f"Đã xóa {count} ghi chú và {history_count} tin nhắn hội thoại.", ephemeral=True
-        )
-
-
-@client.tree.command(name="help", description="Xem hướng dẫn nhanh [GKC]-AI")
-async def help_command(interaction: discord.Interaction):
+    removed = clear_ai_channel(interaction.guild.id)
     await interaction.response.send_message(
-        "**[GKC]-AI — 4 lệnh chính**\\n"
-        "• `/ai message`: Trò chuyện, hỏi kiến thức, tìm web, gửi link TikTok hoặc yêu cầu tìm ảnh.\\n"
-        "• `/kenh_ai channel`: Bật kênh chat tự động; bỏ trống để tắt (quản trị viên).\\n"
-        "• `/nho action`: Lưu, xem hoặc xóa trí nhớ cá nhân.\\n"
-        "• `/help`: Xem hướng dẫn này.\\n\\n"
-        "Trong kênh AI, bạn chỉ cần nhắn bình thường, không cần dùng lệnh. "
-        "Bot có thể tra cứu web và metadata TikTok công khai; không đảm bảo đọc được mọi video. "
-        "Tìm ảnh là lấy ảnh có sẵn trên web, không phải tạo ảnh AI mới.",
-        ephemeral=True,
+        "Đã xóa cài đặt kênh AI." if removed else "Máy chủ chưa cài kênh AI."
+    )
+
+
+@client.tree.command(name="xoabonho", description="Xóa toàn bộ trí nhớ và lịch sử của tất cả người dùng")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def xoabonho(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message("Lệnh này chỉ dùng trong máy chủ.", ephemeral=True)
+        return
+    with connect_db() as conn:
+        memory_count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
+        history_count = conn.execute("SELECT COUNT(*) FROM chat_history").fetchone()[0]
+        conn.execute("DELETE FROM memories")
+        conn.execute("DELETE FROM chat_history")
+    await interaction.response.send_message(
+        f"Đã xóa toàn bộ dữ liệu ghi nhớ của bot: {memory_count} ghi chú và {history_count} tin nhắn lịch sử."
     )
 
 
