@@ -33,6 +33,9 @@ def connect_db():
     conn.execute(
         "CREATE TABLE IF NOT EXISTS memories (user_id TEXT NOT NULL, memory TEXT NOT NULL, created_at TEXT NOT NULL)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ai_channels (guild_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL)"
+    )
     conn.commit()
     return conn
 
@@ -91,7 +94,9 @@ def make_reply(message: str, memories: list[str]) -> str:
 
 class Bot3(discord.Client):
     def __init__(self):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.message_content = True
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -106,12 +111,72 @@ async def on_ready():
     print(f"Bot 3 đã đăng nhập: {client.user} (ID: {client.user.id})")
 
 
+def set_ai_channel(guild_id: int, channel_id: int):
+    with connect_db() as conn:
+        conn.execute(
+            "INSERT INTO ai_channels (guild_id, channel_id) VALUES (?, ?) "
+            "ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id",
+            (str(guild_id), str(channel_id)),
+        )
+
+
+def get_ai_channel(guild_id: int):
+    with connect_db() as conn:
+        row = conn.execute(
+            "SELECT channel_id FROM ai_channels WHERE guild_id = ?", (str(guild_id),)
+        ).fetchone()
+    return int(row[0]) if row else None
+
+
+def clear_ai_channel(guild_id: int):
+    with connect_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM ai_channels WHERE guild_id = ?", (str(guild_id),)
+        )
+        return cursor.rowcount > 0
+
+
+@client.tree.command(name="set_ai_channel", description="Đặt kênh tự động trò chuyện với Bot 3")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(channel="Kênh văn bản dùng làm kênh AI")
+async def set_ai_channel_command(interaction: discord.Interaction, channel: discord.TextChannel):
+    if interaction.guild is None:
+        await interaction.response.send_message("Lệnh này chỉ dùng trong máy chủ.", ephemeral=True)
+        return
+    set_ai_channel(interaction.guild.id, channel.id)
+    await interaction.response.send_message(
+        f"Đã đặt {channel.mention} làm kênh AI. Mọi tin nhắn mới trong kênh đó sẽ được Bot 3 trả lời."
+    )
+
+
+@client.tree.command(name="delete_ai_channel", description="Tắt kênh AI của máy chủ")
+@app_commands.checks.has_permissions(administrator=True)
+async def delete_ai_channel_command(interaction: discord.Interaction):
+    if interaction.guild is None:
+        await interaction.response.send_message("Lệnh này chỉ dùng trong máy chủ.", ephemeral=True)
+        return
+    removed = clear_ai_channel(interaction.guild.id)
+    message = "Đã xóa cài đặt kênh AI." if removed else "Máy chủ chưa đặt kênh AI."
+    await interaction.response.send_message(message)
+
+
 @client.tree.command(name="chat", description="Trò chuyện với Bot 3")
 @app_commands.describe(message="Điều bạn muốn nói với Bot 3")
 async def chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     memories = get_memories(interaction.user.id)
     await interaction.followup.send(make_reply(message, memories))
+
+
+@client.event
+async def on_message(message: discord.Message):
+    if message.author.bot or message.guild is None:
+        return
+    channel_id = get_ai_channel(message.guild.id)
+    if channel_id != message.channel.id:
+        return
+    memories = get_memories(message.author.id)
+    await message.reply(make_reply(message.content, memories), mention_author=False)
 
 
 @client.tree.command(name="remember", description="Bảo Bot 3 ghi nhớ một điều")
@@ -155,7 +220,9 @@ async def help_command(interaction: discord.Interaction):
         "/remember note: Lưu một điều vào trí nhớ riêng của bạn.\n"
         "/profile: Xem các ghi chú bot đã lưu về bạn.\n"
         "/forget: Xóa toàn bộ ghi chú của bạn.\n"
-        "/help: Hiện hướng dẫn này.\n\n"
+        "/help: Hiện hướng dẫn này.\n"
+        "/set_ai_channel channel: Đặt kênh tự động trả lời (quản trị viên).\n"
+        "/delete_ai_channel: Xóa kênh AI (quản trị viên).\n\n"
         "Lưu ý: đây là bot phản hồi theo quy tắc, chưa phải AI hội thoại như ChatGPT.",
         ephemeral=True,
     )
