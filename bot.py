@@ -36,6 +36,9 @@ def connect_db():
     conn.execute(
         "CREATE TABLE IF NOT EXISTS ai_channels (guild_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL)"
     )
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS chat_history (user_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, created_at TEXT NOT NULL)"
+    )
     conn.commit()
     return conn
 
@@ -63,13 +66,50 @@ def delete_memories(user_id: int):
         return cursor.rowcount
 
 
+def get_chat_history(user_id: int, limit: int = 8):
+    with connect_db() as conn:
+        rows = conn.execute(
+            "SELECT role, content FROM chat_history WHERE user_id = ? ORDER BY rowid DESC LIMIT ?",
+            (str(user_id), limit),
+        ).fetchall()
+    return list(reversed(rows))
+
+
+def save_chat_turn(user_id: int, user_message: str, bot_reply: str):
+    now = datetime.now(timezone.utc).isoformat()
+    with connect_db() as conn:
+        conn.executemany(
+            "INSERT INTO chat_history (user_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+            [
+                (str(user_id), "user", user_message[:1500], now),
+                (str(user_id), "assistant", bot_reply[:1500], now),
+            ],
+        )
+        # Keep only the latest 30 messages per user.
+        conn.execute(
+            "DELETE FROM chat_history WHERE user_id = ? AND rowid NOT IN "
+            "(SELECT rowid FROM chat_history WHERE user_id = ? ORDER BY rowid DESC LIMIT 30)",
+            (str(user_id), str(user_id)),
+        )
+
+
+def clear_chat_history(user_id: int):
+    with connect_db() as conn:
+        cursor = conn.execute("DELETE FROM chat_history WHERE user_id = ?", (str(user_id),))
+        return cursor.rowcount
+
+
 _last_reply_by_group = {}
 
-def make_reply(message: str, memories: list[str]) -> str:
+def make_reply(message: str, memories: list[str], history=None) -> str:
     original = message.strip()
     text = original.lower()
     if not text:
         return "Bạn chưa nhập câu hỏi kìa 😄"
+
+    history = history or []
+    previous_user = next((content for role, content in reversed(history) if role == "user"), "")
+    previous_bot = next((content for role, content in reversed(history) if role == "assistant"), "")
 
     def choose(options):
         key = tuple(options)
@@ -151,6 +191,12 @@ def make_reply(message: str, memories: list[str]) -> str:
             "Vì sao lập trình viên thích bóng tối? Vì ánh sáng có quá nhiều bug! 😂",
             "Bot hỏi máy chủ: 'Cậu ổn không?' Máy chủ đáp: 'Tớ đang chịu tải... tình cảm.' 🤣",
             "Tại sao con bug không đi học? Vì nó sợ bị debug! 🐛",
+        ])
+    elif previous_user and any(phrase in text for phrase in ("vậy còn", "thế còn", "còn nó", "còn cái đó", "ý mình là", "nói rõ hơn", "giải thích thêm", "tại sao lại vậy")):
+        answer = choose([
+            f"À, bạn đang nối tiếp chuyện **{previous_user[:180]}**. Mình chưa có kiến thức mở rộng để khẳng định thêm, nhưng có thể cùng bạn phân tích. Bạn muốn làm rõ phần nào?",
+            f"Mình hiểu bạn đang hỏi tiếp ý trước: **{previous_user[:180]}**. Bạn đang muốn biết nguyên nhân, cách làm hay ví dụ cụ thể?",
+            f"Để nối đúng mạch: lúc nãy bạn hỏi **{previous_user[:180]}**. Bạn nói rõ phần muốn đào sâu nhé.",
         ])
     elif any(word in text for word in ("làm sao", "cách nào", "hướng dẫn", "bằng cách nào")):
         answer = choose([
@@ -269,7 +315,10 @@ async def delete_ai_channel_command(interaction: discord.Interaction):
 async def chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     memories = get_memories(interaction.user.id)
-    await interaction.followup.send(make_reply(message, memories)[:1900])
+    history = get_chat_history(interaction.user.id)
+    answer = make_reply(message, memories, history)
+    save_chat_turn(interaction.user.id, message, answer)
+    await interaction.followup.send(answer[:1900])
 
 
 @client.event
@@ -280,7 +329,10 @@ async def on_message(message: discord.Message):
     if channel_id != message.channel.id:
         return
     memories = get_memories(message.author.id)
-    await message.reply(make_reply(message.content, memories)[:1900], mention_author=False)
+    history = get_chat_history(message.author.id)
+    answer = make_reply(message.content, memories, history)
+    save_chat_turn(message.author.id, message.content, answer)
+    await message.reply(answer[:1900], mention_author=False)
 
 
 @client.tree.command(name="remember", description="Bảo Bot 3 ghi nhớ một điều")
@@ -300,7 +352,10 @@ async def remember(interaction: discord.Interaction, note: str):
 @client.tree.command(name="forget", description="Xóa những điều Bot 3 đã nhớ về bạn")
 async def forget(interaction: discord.Interaction):
     count = delete_memories(interaction.user.id)
-    await interaction.response.send_message(f"Đã xóa {count} ghi chú của bạn.")
+    history_count = clear_chat_history(interaction.user.id)
+    await interaction.response.send_message(
+        f"Đã xóa {count} ghi chú và {history_count} tin nhắn hội thoại của bạn."
+    )
 
 
 @client.tree.command(name="profile", description="Xem những điều Bot 3 đang nhớ về bạn")
@@ -327,7 +382,8 @@ async def help_command(interaction: discord.Interaction):
         "/help: Hiện hướng dẫn này.\n"
         "/set_ai_channel channel: Đặt kênh tự động trả lời (quản trị viên).\n"
         "/delete_ai_channel: Xóa kênh AI (quản trị viên).\n\n"
-        "Bot 3 dùng bộ phản hồi tự xây, không cần API key AI.",
+        "Bot 3 dùng bộ xử lý offline, có ghi nhớ hội thoại gần đây và máy tính cơ bản; không cần API key AI.\n"
+        "/forget cũng xóa lịch sử trò chuyện của bạn.",
         ephemeral=True,
     )
 
