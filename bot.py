@@ -248,7 +248,7 @@ async def inspect_tiktok(url: str) -> str:
     if description:
         parts.append("Mô tả: " + description[:900])
     parts.append("Mình mới đọc được metadata công khai, chưa hiểu nội dung hình/âm thanh của video.")
-    return "\\n".join(parts)[:1700]
+    return "\n".join(parts)[:1700]
 
 
 def search_images(query: str, limit: int = 3):
