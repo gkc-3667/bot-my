@@ -377,7 +377,7 @@ def offline_expert_reply(message: str, history=None):
         match = re.search(pattern, text, re.I)
         if match:
             detail = f" ({match.group(1)})" if match.lastindex else ""
-            return f"**Mình phân tích lỗi: {title}{detail}.**\\n\\n**Cách xử lý:** {fix}\\n\\nNếu vẫn lỗi, gửi 15–30 dòng log quanh traceback; nhớ che token và mật khẩu."
+            return f"**Mình phân tích lỗi: {title}{detail}.**\n\n**Cách xử lý:** {fix}\n\nNếu vẫn lỗi, gửi 15–30 dòng log quanh traceback; nhớ che token và mật khẩu."
 
     explainers = [
         (("async", "asyncio", "bất đồng bộ"), "Trong Python, async khai báo hàm bất đồng bộ và await chờ thao tác I/O mà không chặn toàn bộ event loop. Với Discord bot, cách này giúp bot vẫn nhận sự kiện khi đang chờ mạng hoặc database."),
@@ -389,13 +389,13 @@ def offline_expert_reply(message: str, history=None):
     ]
     for triggers, explanation in explainers:
         if any(trigger in low for trigger in triggers):
-            return explanation + "\\n\\nBạn muốn mình đưa ví dụ Python thực tế cho phần này không?"
+            return explanation + "\n\nBạn muốn mình đưa ví dụ Python thực tế cho phần này không?"
 
     if any(term in low for term in ("viết code", "viết mã", "tạo code", "tạo mã", "cho code", "cho mình code")):
         if any(term in low for term in ("đọc file", "đọc tệp", "đọc txt")):
-            return "Mẫu Python đọc file UTF-8:\\n\\n    from pathlib import Path\\n    path = Path('data.txt')\\n    try:\\n        print(path.read_text(encoding='utf-8'))\\n    except FileNotFoundError:\\n        print('Không tìm thấy file:', path)\\n    except OSError as exc:\\n        print('Không thể đọc file:', exc)\\n\\nĐổi data.txt thành đường dẫn file của bạn."
+            return "Mẫu Python đọc file UTF-8:\n\n    from pathlib import Path\n    path = Path('data.txt')\n    try:\n        print(path.read_text(encoding='utf-8'))\n    except FileNotFoundError:\n        print('Không tìm thấy file:', path)\n    except OSError as exc:\n        print('Không thể đọc file:', exc)\n\nĐổi data.txt thành đường dẫn file của bạn."
         if any(term in low for term in ("ghi file", "lưu file", "tạo file")):
-            return "Mẫu Python ghi file UTF-8:\\n\\n    from pathlib import Path\\n    path = Path('data.txt')\\n    path.write_text('Xin chào từ GKC-AI!', encoding='utf-8')\\n    print('Đã lưu:', path.resolve())\\n\\nLưu ý: write_text sẽ ghi đè nội dung cũ."
+            return "Mẫu Python ghi file UTF-8:\n\n    from pathlib import Path\n    path = Path('data.txt')\n    path.write_text('Xin chào từ GKC-AI!', encoding='utf-8')\n    print('Đã lưu:', path.resolve())\n\nLưu ý: write_text sẽ ghi đè nội dung cũ."
         if any(term in low for term in ("lệnh slash", "slash command", "lệnh discord")):
             return "Mẫu slash command discord.py: import discord; from discord import app_commands; tạo discord.Client và app_commands.CommandTree; dùng @bot.tree.command(name='hello') cho hàm async; trong hàm gọi interaction.response.send_message('Xin chào!'). Đây là khung hướng dẫn, cần ghép vào client hiện tại chứ không tạo client thứ hai."
         return "Mình có thể viết code, nhưng cần biết chức năng cụ thể, ngôn ngữ và nơi chạy (Discord, web hay Python thường). Gửi code hiện tại nếu có, nhớ che token/mật khẩu nhé."
@@ -403,7 +403,7 @@ def offline_expert_reply(message: str, history=None):
     if history and any(p in low for p in ("nói tiếp", "tiếp đi", "ý đó", "cái vừa nói", "giải thích thêm")):
         last_bot = next((content for role, content in reversed(history) if role == "assistant"), "")
         if last_bot:
-            return f'Mình đang nối tiếp câu trả lời trước: "{last_bot[:450]}"\\n\\nBạn muốn đào sâu nguyên nhân, ví dụ hay cách thực hiện?'
+            return f'Mình đang nối tiếp câu trả lời trước: "{last_bot[:450]}"\n\nBạn muốn đào sâu nguyên nhân, ví dụ hay cách thực hiện?'
     return None
 
 
