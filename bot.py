@@ -274,7 +274,7 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     text = original.lower()
 
     # Chỉ đọc metadata TikTok khi người dùng yêu cầu rõ ràng.
-    tiktok_match = re.search(r"https?://(?:www\\.)?(?:vm\\.)?tiktok\\.com/[^\\s<>]+", original)
+    tiktok_match = re.search(r"https?://(?:www\.)?(?:vm\.)?tiktok\.com/[^\s<>]+", original)
     tiktok_requests = ("phân tích", "xem giúp", "tóm tắt", "thông tin video", "video này nói gì", "đọc link", "kiểm tra link")
     if tiktok_match and any(phrase in text for phrase in tiktok_requests):
         try:
@@ -287,12 +287,12 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
 
     # Chỉ tìm ảnh khi người dùng yêu cầu rõ ràng.
     if any(phrase in text for phrase in ("tìm ảnh", "tìm hình", "gửi ảnh", "cho xem ảnh", "kiếm ảnh")):
-        query = re.sub(r"^(tìm|gửi|cho xem|kiếm)\\s*(mình|tôi|tớ)?\\s*(ảnh|hình ảnh|hình)?\\s*(về|của)?\\s*", "", original, flags=re.I).strip()
+        query = re.sub(r"^(tìm|gửi|cho xem|kiếm)\s*(mình|tôi|tớ)?\s*(ảnh|hình ảnh|hình)?\s*(về|của)?\s*", "", original, flags=re.I).strip()
         try:
             images = await asyncio.to_thread(search_images, query or original, 3)
             urls = [item.get("image") for item in images if item.get("image")]
             if urls:
-                return "Mình tìm được ảnh liên quan đây 🖼️\\n" + "\\n".join(urls[:3])
+                return "Mình tìm được ảnh liên quan đây 🖼️\n" + "\n".join(urls[:3])
             return "Mình chưa tìm được ảnh phù hợp. Bạn mô tả chủ thể, màu sắc hoặc phong cách nhé."
         except Exception as exc:
             print(f"Image search failed: {type(exc).__name__}: {exc}")
