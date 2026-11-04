@@ -166,8 +166,11 @@ async def delete_ai_channel_command(interaction: discord.Interaction):
 async def chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     memories = get_memories(interaction.user.id)
-    answer = await generate_reply(interaction.user.id, message, memories)
-    await interaction.followup.send(answer[:1900])
+    try:
+        answer = await generate_reply(interaction.user.id, message, memories)
+        await interaction.followup.send(answer[:1900])
+    except RuntimeError as exc:
+        await interaction.followup.send(str(exc))
 
 
 @client.event
