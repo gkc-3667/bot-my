@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 import discord
 from discord import app_commands
 from flask import Flask, jsonify
-from ai_engine import generate_reply
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
@@ -166,11 +165,7 @@ async def delete_ai_channel_command(interaction: discord.Interaction):
 async def chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     memories = get_memories(interaction.user.id)
-    try:
-        answer = await generate_reply(interaction.user.id, message, memories)
-        await interaction.followup.send(answer[:1900])
-    except RuntimeError as exc:
-        await interaction.followup.send(str(exc))
+    await interaction.followup.send(make_reply(message, memories)[:1900])
 
 
 @client.event
@@ -181,11 +176,7 @@ async def on_message(message: discord.Message):
     if channel_id != message.channel.id:
         return
     memories = get_memories(message.author.id)
-    try:
-        answer = await generate_reply(message.author.id, message.content, memories)
-        await message.reply(answer[:1900], mention_author=False)
-    except RuntimeError as exc:
-        await message.reply(f"{exc}", mention_author=False)
+    await message.reply(make_reply(message.content, memories)[:1900], mention_author=False)
 
 
 @client.tree.command(name="remember", description="Bảo Bot 3 ghi nhớ một điều")
@@ -232,7 +223,7 @@ async def help_command(interaction: discord.Interaction):
         "/help: Hiện hướng dẫn này.\n"
         "/set_ai_channel channel: Đặt kênh tự động trả lời (quản trị viên).\n"
         "/delete_ai_channel: Xóa kênh AI (quản trị viên).\n\n"
-        "AI hội thoại dùng mô hình chạy trên máy chủ bên ngoài. Cần cấu hình GROQ_API_KEY trên host.",
+        "Bot 3 dùng bộ phản hồi tự xây, không cần API key AI.",
         ephemeral=True,
     )
 
