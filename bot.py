@@ -63,7 +63,10 @@ def delete_memories(user_id: int):
         return cursor.rowcount
 
 
-_last_reply_by_group = {}\n\ndef make_reply(message: str, memories: list[str]) -> str:\n    original = message.strip()
+_last_reply_by_group = {}
+
+def make_reply(message: str, memories: list[str]) -> str:
+    original = message.strip()
     text = original.lower()
     if not text:
         return "Bạn chưa nhập câu hỏi kìa 😄"
