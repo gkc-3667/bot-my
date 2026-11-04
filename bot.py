@@ -64,33 +64,131 @@ def delete_memories(user_id: int):
 
 
 def make_reply(message: str, memories: list[str]) -> str:
-    text = message.lower().strip()
-    if any(word in text for word in ("xin chào", "chào", "hello", "hi ", "hey")):
-        answer = random.choice([
-            "Chào bạn! Hôm nay mình hoạt động bằng 100% sự dễ thương và 2% pin tưởng tượng. 😎",
-            "Hello! Có chuyện gì kể mình nghe xem nào. 👋",
-            "Chào nha! Bot 3 đã có mặt, chưa có cà phê nhưng vẫn tỉnh. ☕",
+    original = message.strip()
+    text = original.lower()
+    if not text:
+        return "Bạn chưa nhập câu hỏi kìa 😄"
+
+    def choose(options):
+        return random.choice(options)
+
+    # Safe arithmetic: only numbers and basic arithmetic operators are accepted.
+    import ast
+    import operator
+    import re
+    operators = {
+        ast.Add: operator.add, ast.Sub: operator.sub,
+        ast.Mult: operator.mul, ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv, ast.Mod: operator.mod,
+        ast.Pow: operator.pow, ast.USub: operator.neg,
+        ast.UAdd: operator.pos,
+    }
+
+    def calculate(expression):
+        def visit(node):
+            if isinstance(node, ast.Expression):
+                return visit(node.body)
+            if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                return node.value
+            if isinstance(node, ast.BinOp) and type(node.op) in operators:
+                left, right = visit(node.left), visit(node.right)
+                if isinstance(node.op, ast.Pow) and abs(right) > 8:
+                    raise ValueError("exponent too large")
+                value = operators[type(node.op)](left, right)
+                if abs(value) > 10**15:
+                    raise ValueError("result too large")
+                return value
+            if isinstance(node, ast.UnaryOp) and type(node.op) in operators:
+                return operators[type(node.op)](visit(node.operand))
+            raise ValueError("unsupported expression")
+
+        tree = ast.parse(expression, mode="eval")
+        return visit(tree)
+
+    math_match = re.search(r"(?:tính\s*)?([-+]?\d+(?:\.\d+)?(?:\s*[\+\-*/%]\s*[-+]?\d+(?:\.\d+)?)+)", text)
+    if math_match:
+        try:
+            result = calculate(math_match.group(1).replace(" ", ""))
+            answer = choose([
+                f"Kết quả là **{result}** nhé. 🧮",
+                f"Mình tính được: **{result}**. Toán hôm nay chưa thắng được mình rồi! 😎",
+                f"Đáp án: **{result}**. Bạn muốn mình tính tiếp phép nào?",
+            ])
+        except Exception:
+            answer = "Phép tính này hơi vượt phạm vi máy tính mini của mình. Bạn kiểm tra lại biểu thức nhé."
+    elif any(word in text for word in ("xin chào", "chào", "hello", "hi ", "hey")):
+        answer = choose([
+            "Chào bạn! Bot 3 đã online, hôm nay mình giúp gì được nào? 😎",
+            "Hello! Quăng câu hỏi đây, mình đang nghe. 👋",
+            "Chào nha! Bộ não Python đã khởi động, cà phê thì chưa. ☕",
+            "Ê chào bạn! Hôm nay Discord có chuyện gì vui?",
         ])
-    elif "bạn là ai" in text or "mày là ai" in text:
-        answer = "Mình là Bot 3 — trợ lý Discord vừa cố tỏ ra thông minh vừa không quên pha trò. 🤖"
-    elif "cảm ơn" in text or "thanks" in text:
-        answer = "Không có gì! Giúp được bạn là mình vui rồi. 😄"
-    elif "buồn" in text or "mệt" in text:
-        answer = "Nghe có vẻ hôm nay không dễ dàng lắm. Nghỉ một chút nhé, nếu muốn thì kể mình nghe."
-    elif "help" in text or "giúp" in text:
-        answer = "Bạn có thể trò chuyện với mình bằng /chat, lưu điều cần nhớ bằng /remember và xem lại bằng /profile."
+    elif any(phrase in text for phrase in ("bạn là ai", "mày là ai", "cậu là ai")):
+        answer = choose([
+            "Mình là Bot 3, trợ lý Discord tự xây: nhẹ, vui tính và đang học cách hữu ích hơn. 🤖",
+            "Bot 3 đây! Mình chạy bằng Python, có trí nhớ SQLite và một chút khiếu hài hước.",
+        ])
+    elif any(word in text for word in ("cảm ơn", "thanks", "thank you")):
+        answer = choose([
+            "Không có gì nha! Cứ gọi mình khi cần. 😄",
+            "Giúp được bạn là vui rồi. Có câu nào nữa không?",
+            "Đừng khách sáo, mình còn đang cần luyện trình đây! 😎",
+        ])
+    elif any(word in text for word in ("buồn", "mệt mỏi", "chán nản", "áp lực")):
+        answer = choose([
+            "Nghe như bạn đang có một ngày khá nặng nề. Muốn kể rõ chuyện gì đang xảy ra không?",
+            "Bạn không cần phải giải quyết mọi thứ ngay lập tức đâu. Nghỉ một chút rồi mình cùng gỡ từng việc nhé.",
+            "Mình đang nghe đây. Điều gì làm bạn thấy mệt nhất lúc này?",
+        ])
+    elif any(word in text for word in ("đùa", "kể chuyện cười", "joke", "làm mình cười")):
+        answer = choose([
+            "Vì sao lập trình viên thích bóng tối? Vì ánh sáng có quá nhiều bug! 😂",
+            "Bot hỏi máy chủ: 'Cậu ổn không?' Máy chủ đáp: 'Tớ đang chịu tải... tình cảm.' 🤣",
+            "Tại sao con bug không đi học? Vì nó sợ bị debug! 🐛",
+        ])
+    elif any(word in text for word in ("làm sao", "cách nào", "hướng dẫn", "bằng cách nào")):
+        answer = choose([
+            "Mình sẽ giúp bạn chia việc đó thành từng bước. Bạn cho mình biết mục tiêu cụ thể và bạn đang làm trên thiết bị/app nào nhé.",
+            "Để hướng dẫn đúng, mình cần biết bạn muốn đạt kết quả gì và hiện đang mắc ở bước nào.",
+            "Mình có thể hướng dẫn từng bước. Bạn gửi thêm bối cảnh hoặc thông báo lỗi nếu có nha.",
+        ])
+    elif any(word in text for word in ("là gì", "nghĩa là gì", "định nghĩa")):
+        topic = original.replace("là gì", "").replace("nghĩa là gì", "").replace("định nghĩa", "").strip(" ?")
+        answer = choose([
+            f"Bạn đang hỏi về **{topic or original}**. Mình chưa có kho kiến thức đầy đủ để xác minh định nghĩa chính xác. Bạn cho mình biết lĩnh vực hoặc ngữ cảnh nhé, mình sẽ giải thích sát hơn.",
+            f"Mình cần thêm ngữ cảnh về **{topic or original}** để tránh giải thích sai. Bạn gặp thuật ngữ này ở đâu?",
+        ])
+    elif any(word in text for word in ("code", "python", "lập trình", "discord bot", "lỗi")):
+        answer = choose([
+            "Mình có thể giúp phân tích code Python và bot Discord. Gửi đoạn code hoặc lỗi đầy đủ, mình sẽ tìm nguyên nhân cùng bạn.",
+            "Được, mình thử gỡ lỗi nhé. Bạn gửi thông báo lỗi và đoạn code liên quan; nhớ che token/mật khẩu.",
+            "Mình hỗ trợ lập trình được ở mức hướng dẫn và phân tích. Bạn đang muốn viết tính năng mới hay sửa lỗi?",
+        ])
+    elif any(word in text for word in ("bạn nghĩ sao", "theo bạn", "nên làm gì", "lời khuyên")):
+        answer = choose([
+            "Mình nghĩ nên xác định mục tiêu trước, rồi so sánh lợi ích, rủi ro và công sức của từng lựa chọn. Bạn kể thêm tình huống nhé.",
+            "Mình có thể cùng bạn cân nhắc. Hiện có những lựa chọn nào và điều gì quan trọng nhất với bạn?",
+            "Chưa đủ dữ kiện để kết luận, nhưng mình sẵn sàng phân tích ưu nhược điểm cùng bạn.",
+        ])
+    elif "?" in original or any(word in text for word in ("tại sao", "vì sao", "bao nhiêu", "khi nào", "ở đâu", "ai ", "có phải")):
+        answer = choose([
+            "Mình hiểu đây là câu hỏi, nhưng bộ não offline hiện chưa có dữ liệu đủ để xác minh câu trả lời. Bạn thêm một chút bối cảnh nhé, mình sẽ thử phân tích.",
+            "Câu này cần kiến thức cụ thể hơn những gì mình được cài sẵn. Mình không muốn bịa đáp án cho bạn đâu. Bạn đang hỏi trong ngữ cảnh nào?",
+            "Mình chưa chắc đáp án chính xác. Cho mình thêm chi tiết hoặc một ví dụ để thu hẹp câu hỏi nhé.",
+            "Để không trả lời đại, mình cần thêm dữ kiện. Bạn muốn hỏi về phần nào của vấn đề này?",
+        ])
     else:
-        answer = random.choice([
-            "Nghe cũng thú vị đó. Kể thêm cho mình nghe đi!",
-            "Mình đang xử lý... bằng bộ não Python phiên bản tiết kiệm. 😅",
-            "Ồ! Rồi chuyện tiếp theo thế nào?",
-            "Mình chưa hiểu hết ý, nhưng mình đang lắng nghe đây.",
-            "Nếu đây là bài kiểm tra độ thông minh thì mình xin thêm 3 giây suy nghĩ. 🤔",
+        answer = choose([
+            "Mình đang nghe đây. Bạn muốn mình phân tích, giải thích hay đưa ra ý tưởng cho chuyện đó?",
+            "Mình chưa bắt được hết ý. Bạn nói rõ hơn một chút nhé, mình sẽ thử giúp.",
+            "Có vẻ đây là chủ đề mới với bộ não offline của mình. Kể thêm bối cảnh đi, mình cùng suy luận nhé.",
+            "Mình có thể trao đổi tiếp về chuyện này. Phần nào bạn muốn tìm hiểu trước?",
+            "Góc nhìn thú vị đó! Bạn muốn đào sâu điểm nào?",
         ])
+
     if memories:
         answer += "\n\nMình vẫn nhớ: " + " • ".join(memories[-3:])
     return answer
-
 
 class Bot3(discord.Client):
     def __init__(self):
