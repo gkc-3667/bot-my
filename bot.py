@@ -391,6 +391,35 @@ def offline_expert_reply(message: str, history=None):
         if any(trigger in low for trigger in triggers):
             return explanation + "\n\nBạn muốn mình đưa ví dụ Python thực tế cho phần này không?"
 
+    if "tóm tắt" in low and len(text) > 180:
+        return "Mình tóm tắt nội dung bạn gửi:\\n" + extractive_summary(text, 5)
+
+    if any(term in low for term in ("viết caption", "viết chú thích", "caption giúp")):
+        topic = re.sub(r"^.*?(?:viết caption|viết chú thích|caption giúp)\\s*", "", text, flags=re.I).strip(" :,-")
+        if not topic:
+            return "Được chứ 😄 Bạn gửi ảnh hoặc nói chủ đề, phong cách muốn có (hài hước, dễ thương, ngầu hay chuyên nghiệp), mình sẽ soạn caption."
+        return (
+            f"**Caption gợi ý cho {topic[:120]}**\\n"
+            f"1. {topic[:100]} — đôi khi điều giản dị lại tạo nên khoảnh khắc đáng nhớ. ✨\\n"
+            f"2. Không cần quá hoàn hảo, chỉ cần đúng chất của mình. 😎\\n"
+            f"3. Một chút {topic[:70]}, một chút vui, thế là đủ cho hôm nay. 💫\\n"
+            "Bạn muốn caption hài hước, thả thính hay ngắn gọn hơn?"
+        )
+
+    if any(term in low for term in ("viết thông báo", "soạn thông báo", "viết nội quy")):
+        topic = re.sub(r"^.*?(?:viết thông báo|soạn thông báo|viết nội quy)\\s*", "", text, flags=re.I).strip(" :,-")
+        if not topic:
+            return "Mình soạn được nhé. Bạn cho biết thông báo về việc gì, áp dụng từ khi nào và giọng văn nghiêm túc hay thân thiện."
+        return (
+            f"**THÔNG BÁO**\\n\\n"
+            f"Chào mọi người!\\n\\n{topic}\\n\\n"
+            "Mong mọi người đọc kỹ và phối hợp thực hiện. Nếu có thắc mắc, hãy liên hệ ban quản trị. "
+            "Cảm ơn mọi người! ❤️"
+        )
+
+    if any(term in low for term in ("dịch sang tiếng anh", "dịch sang tiếng việt", "translate")):
+        return "Bạn gửi đoạn văn cần dịch nhé. Mình sẽ giúp xử lý phần văn bản được cung cấp; với thuật ngữ chuyên ngành, hãy cho biết ngữ cảnh để chọn nghĩa chính xác."
+
     if any(term in low for term in ("viết code", "viết mã", "tạo code", "tạo mã", "cho code", "cho mình code")):
         if any(term in low for term in ("đọc file", "đọc tệp", "đọc txt")):
             return "Mẫu Python đọc file UTF-8:\n\n    from pathlib import Path\n    path = Path('data.txt')\n    try:\n        print(path.read_text(encoding='utf-8'))\n    except FileNotFoundError:\n        print('Không tìm thấy file:', path)\n    except OSError as exc:\n        print('Không thể đọc file:', exc)\n\nĐổi data.txt thành đường dẫn file của bạn."
