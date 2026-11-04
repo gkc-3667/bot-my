@@ -558,10 +558,10 @@ def extract_explicit_memory(message: str):
     """Chỉ lưu điều người dùng chủ động yêu cầu bot ghi nhớ."""
     value = message.strip()
     patterns = (
-        r"^(?:hãy )?nhớ rằng\\s+(.+)$",
-        r"^(?:hãy )?ghi nhớ\\s+(.+)$",
-        r"^lưu vào bộ nhớ rằng\\s+(.+)$",
-        r"^remember that\\s+(.+)$",
+        r"^(?:hãy )?nhớ rằng\s+(.+)$",
+        r"^(?:hãy )?ghi nhớ\s+(.+)$",
+        r"^lưu vào bộ nhớ rằng\s+(.+)$",
+        r"^remember that\s+(.+)$",
     )
     for pattern in patterns:
         match = re.match(pattern, value, re.I)
@@ -587,7 +587,7 @@ def split_discord_message(content: str, limit: int = 1900):
     remaining = content.strip()
     chunks = []
     while len(remaining) > limit:
-        cut = remaining.rfind("\\n", 0, limit)
+        cut = remaining.rfind("\n", 0, limit)
         if cut < limit // 2:
             cut = remaining.rfind(" ", 0, limit)
         if cut < limit // 2:
