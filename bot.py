@@ -490,7 +490,7 @@ async def help_command(interaction: discord.Interaction):
         "/help: Hiện hướng dẫn này.\n"
         "/set_ai_channel channel: Đặt kênh tự động trả lời (quản trị viên).\n"
         "/delete_ai_channel: Xóa kênh AI (quản trị viên).\n\n"
-        "Bot 3 tìm kiếm web; nếu cấu hình OPENAI_API_KEY thì dùng AI để trả lời và tổng hợp.\n"
+        "Bot 3 tìm kiếm web không cần API key AI; trả kết quả kèm nguồn để bạn kiểm tra.\n"
         "/forget cũng xóa lịch sử trò chuyện của bạn.",
         ephemeral=True,
     )
