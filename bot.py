@@ -554,6 +554,53 @@ def make_reply(message: str, memories: list[str], history=None) -> str:
         answer += "\n\nMình vẫn nhớ: " + " • ".join(memories[-3:])
     return answer
 
+def extract_explicit_memory(message: str):
+    """Chỉ lưu điều người dùng chủ động yêu cầu bot ghi nhớ."""
+    value = message.strip()
+    patterns = (
+        r"^(?:hãy )?nhớ rằng\\s+(.+)$",
+        r"^(?:hãy )?ghi nhớ\\s+(.+)$",
+        r"^lưu vào bộ nhớ rằng\\s+(.+)$",
+        r"^remember that\\s+(.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, value, re.I)
+        if match:
+            memory = match.group(1).strip(" .!?")
+            if 3 <= len(memory) <= 300:
+                return memory
+    return None
+
+
+def limit_user_memories(user_id: int, limit: int = 20):
+    """Giữ bộ nhớ nhỏ để SQLite không phình vô hạn."""
+    with connect_db() as conn:
+        conn.execute(
+            "DELETE FROM memories WHERE user_id = ? AND rowid NOT IN "
+            "(SELECT rowid FROM memories WHERE user_id = ? ORDER BY rowid DESC LIMIT ?)",
+            (str(user_id), str(user_id), limit),
+        )
+
+
+def split_discord_message(content: str, limit: int = 1900):
+    """Chia câu trả lời dài thành nhiều tin nhắn, ưu tiên ngắt ở dòng."""
+    remaining = content.strip()
+    chunks = []
+    while len(remaining) > limit:
+        cut = remaining.rfind("\\n", 0, limit)
+        if cut < limit // 2:
+            cut = remaining.rfind(" ", 0, limit)
+        if cut < limit // 2:
+            cut = limit
+        chunks.append(remaining[:cut].rstrip())
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks or ["Mình chưa tạo được câu trả lời."]
+
+
+
+
 class GKCAI(discord.Client):
     def __init__(self):
         intents = discord.Intents.default()
@@ -645,12 +692,31 @@ async def on_message(message: discord.Message):
     channel_id = get_ai_channel(message.guild.id)
     if channel_id != message.channel.id:
         return
-    async with message.channel.typing():
-        memories = get_memories(message.author.id)
-        history = get_chat_history(message.author.id)
-        answer = await smart_reply(message.content, memories, history)
+    # Chỉ ghi nhớ khi thành viên chủ động yêu cầu; không tự thu thập thông tin cá nhân.
+    requested_memory = extract_explicit_memory(message.content)
+    if requested_memory:
+        save_memory(message.author.id, requested_memory)
+        limit_user_memories(message.author.id)
+        answer = "Mình đã ghi nhớ điều bạn vừa dặn. 🧠 Bạn có thể dùng /xoabonho để xóa toàn bộ bộ nhớ của bot."
         save_chat_turn(message.author.id, message.content, answer)
-    await message.reply(answer[:1900], mention_author=False)
+        await message.reply(answer, mention_author=False)
+        return
+
+    async with message.channel.typing():
+        try:
+            memories = get_memories(message.author.id)
+            history = get_chat_history(message.author.id)
+            answer = await smart_reply(message.content, memories, history)
+        except Exception as exc:
+            print(f"Chat handler error: {type(exc).__name__}: {exc}")
+            answer = "Mình vừa gặp trục trặc khi xử lý tin nhắn. Bạn thử gửi lại nhé; nếu lặp lại, báo quản trị viên kiểm tra log."
+        save_chat_turn(message.author.id, message.content, answer)
+
+    for index, chunk in enumerate(split_discord_message(answer)):
+        if index == 0:
+            await message.reply(chunk, mention_author=False)
+        else:
+            await message.channel.send(chunk)
 
 
 if __name__ == "__main__":
