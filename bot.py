@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import random
 import sqlite3
 import threading
