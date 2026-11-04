@@ -10,13 +10,10 @@ from dotenv import load_dotenv
 from discord import app_commands
 from flask import Flask, jsonify
 from ddgs import DDGS
-from openai import OpenAI
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
 web = Flask(__name__)
 
@@ -107,97 +104,81 @@ def clear_chat_history(user_id: int):
 
 
 
-def run_web_search(query: str, limit: int = 5):
-    """Search the public web and return a small, link-rich result set."""
+def run_web_search(query: str, limit: int = 6):
+    """Search the public web without an API key."""
     query = query.strip()[:300]
     if not query:
         return []
-    with DDGS() as search:
+    with DDGS(timeout=12) as search:
         return list(search.text(query, max_results=limit))
 
 
-def wants_web_search(message: str) -> bool:
-    text = message.lower()
-    triggers = (
-        "tìm kiếm", "tìm trên mạng", "tìm trên google", "tra cứu",
-        "tìm website", "tìm trang web", "cho mình link", "gửi link",
-        "trang web", "website", "đường dẫn", "tin mới nhất",
-        "mới nhất", "hôm nay", "hiện nay", "giá hiện tại",
-        "thông tin mới", "nguồn tham khảo",
+def should_search_message(message: str) -> bool:
+    """Search factual questions and unfamiliar messages; keep greetings and small talk local."""
+    text = message.lower().strip()
+    if not text:
+        return False
+    simple_phrases = (
+        "xin chào", "chào", "hello", "hey", "cảm ơn", "thanks",
+        "thank you", "bạn là ai", "mày là ai", "cậu là ai",
+        "kể chuyện cười", "đùa đi", "làm mình cười",
     )
-    return any(term in text for term in triggers)
+    if any(text == phrase or text.startswith(phrase + " ") for phrase in simple_phrases):
+        return False
+    return True
 
 
 async def smart_reply(message: str, memories: list[str], history=None) -> str:
-    """Use web search when useful, then an optional OpenAI model; always fall back."""
+    """Answer from local handlers or public web results. No paid AI/API key is used."""
     history = history or []
-    search_results = []
-    if wants_web_search(message):
-        try:
-            search_results = await asyncio.to_thread(run_web_search, message)
-        except Exception as exc:
-            print(f"Web search failed: {type(exc).__name__}: {exc}")
+    local = make_reply(message, memories, history)
+    text = message.lower().strip()
+    if not should_search_message(message) or any(
+        phrase in text for phrase in ("+", " - ", " * ", " / ")
+    ):
+        return local[:1850]
 
-    if OPENAI_API_KEY:
-        try:
-            client = OpenAI(api_key=OPENAI_API_KEY, timeout=25.0, max_retries=0)
-            history_text = "\n".join(
-                f"{'Người dùng' if role == 'user' else 'Bot 3'}: {content}"
-                for role, content in history[-8:]
-            )
-            memory_text = "\n".join(f"- {item}" for item in memories[-10:])
-            sources_text = "\n".join(
-                f"- {item.get('title', 'Trang web')}: {item.get('body', '')}\n  URL: {item.get('href', '')}"
-                for item in search_results
-            ) or "Chưa thực hiện tìm kiếm web cho câu hỏi này."
-            prompt = (
-                f"Lịch sử gần đây:\n{history_text or '(chưa có)'}\n\n"
-                f"Thông tin người dùng đã cho bot ghi nhớ:\n{memory_text or '(chưa có)'}\n\n"
-                f"Kết quả tìm kiếm web:\n{sources_text}\n\n"
-                f"Câu hỏi hiện tại của người dùng:\n{message}\n\n"
-                "Trả lời bằng tiếng Việt tự nhiên, hữu ích, trung thực. "
-                "Nếu có nguồn web, hãy dựa trên nguồn và đưa URL phù hợp. "
-                "Không bịa thông tin hoặc đường dẫn. Nếu không biết, hãy nói rõ."
-            )
-            response = await asyncio.to_thread(
-                lambda: client.responses.create(
-                    model=OPENAI_MODEL,
-                    instructions=(
-                        "Bạn là Bot 3, trợ lý Discord thông minh, thân thiện, dí dỏm vừa phải. "
-                        "Trả lời trực tiếp câu hỏi, hỏi lại chỉ khi thật sự thiếu dữ kiện. "
-                        "Không tiết lộ token, bí mật hoặc dữ liệu của người khác."
-                    ),
-                    input=prompt,
-                    max_output_tokens=700,
-                )
-            )
-            answer = (response.output_text or "").strip()
-            if answer:
-                return answer[:1850]
-        except Exception as exc:
-            print(f"OpenAI request failed: {type(exc).__name__}: {exc}")
-
-    if search_results:
-        lines = ["Mình tìm được vài kết quả trên Internet:"]
-        for item in search_results[:5]:
-            title = item.get("title") or "Trang web"
-            body = item.get("body") or ""
-            url = item.get("href") or ""
-            lines.append(f"**{title}**\n{body[:350]}\n{url}")
-        lines.append(
-            "\nChưa có OPENAI_API_KEY nên hiện mình chỉ gửi kết quả tìm kiếm, "
-            "chưa thể tổng hợp thông minh như ChatGPT."
+    try:
+        results = await asyncio.to_thread(run_web_search, message, 6)
+    except Exception as exc:
+        print(f"Web search failed: {type(exc).__name__}: {exc}")
+        return (
+            "Mình đã cố tìm thông tin cho câu hỏi này nhưng dịch vụ tìm kiếm hiện không phản hồi. "
+            "Bạn thử lại sau ít phút nhé. Mình không muốn đoán bừa rồi đưa thông tin sai."
         )
-        return "\n\n".join(lines)[:1850]
 
-    if not OPENAI_API_KEY:
-        return make_reply(message, memories, history) + (
-            "\n\n*(Chế độ dự phòng: chưa cấu hình OPENAI_API_KEY.)*"
+    if not results:
+        return (
+            "Mình chưa tìm được nguồn phù hợp cho câu hỏi này. "
+            "Bạn thử đổi cách diễn đạt hoặc thêm tên chủ đề/địa điểm cụ thể nhé. "
+            "Bạn cũng có thể dùng /search kèm từ khóa ngắn hơn."
         )
-    return (
-        "Mình đang gặp trục trặc khi kết nối AI. Bạn thử gửi lại sau nhé; "
-        "mình không muốn bịa câu trả lời."
+
+    lines = [f"**Mình tìm được thông tin liên quan đến:** {message[:220]}", ""]
+    for index, item in enumerate(results[:5], start=1):
+        title = (item.get("title") or "Kết quả tìm kiếm").strip()
+        body = (item.get("body") or "").strip()
+        url = (item.get("href") or "").strip()
+        if not url:
+            continue
+        lines.append(f"**{index}. {title[:180]}**")
+        if body:
+            lines.append(body[:420])
+        lines.append(url)
+        lines.append("")
+
+    if len(lines) <= 2:
+        return (
+            "Mình tìm thấy kết quả nhưng các trang không cung cấp đường dẫn đọc được. "
+            "Bạn thử /search với từ khóa khác nhé."
+        )
+
+    lines.append(
+        "Mình đang chạy chế độ không dùng API AI trả phí, nên phần trên là thông tin "
+        "và mô tả từ các trang tìm kiếm, chưa phải bài phân tích do mô hình ngôn ngữ tạo ra. "
+        "Hãy mở nguồn để kiểm tra chi tiết."
     )
+    return "\n".join(lines)[:1850]
 
 
 _last_reply_by_group = {}
