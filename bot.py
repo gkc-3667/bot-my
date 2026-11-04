@@ -213,18 +213,29 @@ async def read_and_summarize(url: str) -> dict:
 
 
 def should_search_message(message: str) -> bool:
-    """Search factual questions and unfamiliar messages; keep greetings and small talk local."""
+    """Chỉ tìm web khi người dùng chủ động yêu cầu tra cứu."""
     text = message.lower().strip()
     if not text:
         return False
-    simple_phrases = (
-        "xin chào", "chào", "hello", "hey", "cảm ơn", "thanks",
-        "thank you", "bạn là ai", "mày là ai", "cậu là ai",
-        "kể chuyện cười", "đùa đi", "làm mình cười",
-    )
-    if any(text == phrase or text.startswith(phrase + " ") for phrase in simple_phrases):
+
+    # Cụm "tìm cách..." thường là xin lời khuyên/hướng dẫn, không phải tìm web.
+    if any(phrase in text for phrase in (
+        "tìm cách nói chuyện", "tìm cách giải quyết", "tìm cách làm",
+        "tìm cách sửa", "tìm cách viết", "tìm cách học",
+    )):
         return False
-    return True
+
+    explicit_search_phrases = (
+        "tìm kiếm", "tìm trên mạng", "tìm trên internet", "tìm trên google",
+        "tra cứu", "search giúp", "search hộ", "google giúp", "kiếm nguồn",
+        "tìm nguồn", "cho mình nguồn", "đưa nguồn", "dẫn nguồn",
+        "kiểm tra trên mạng", "xem trên mạng", "tìm thông tin",
+        "tìm giúp", "tìm hộ", "hãy tìm", "giúp mình tìm",
+        "cập nhật mới nhất", "tin mới nhất", "thông tin mới nhất",
+        "giá hiện tại", "giá hôm nay", "tỷ giá hiện tại",
+        "thời tiết hôm nay", "lịch thi đấu mới nhất",
+    )
+    return any(phrase in text for phrase in explicit_search_phrases)
 
 
 async def inspect_tiktok(url: str) -> str:
@@ -257,28 +268,31 @@ def search_images(query: str, limit: int = 3):
 
 
 async def smart_reply(message: str, memories: list[str], history=None) -> str:
-    """Research-first assistant: conversational memory, safe math, web sources and extractive reading."""
+    """Trò chuyện mặc định; chỉ tra cứu web khi người dùng yêu cầu rõ ràng."""
     history = history or []
     original = message.strip()
     text = original.lower()
 
-    # Public TikTok links: inspect metadata only; do not download the video.
-    tiktok_match = re.search(r"https?://(?:www\.)?(?:vm\.)?tiktok\.com/[^\s<>]+", original)
-    if tiktok_match:
+    # Chỉ đọc metadata TikTok khi người dùng yêu cầu rõ ràng.
+    tiktok_match = re.search(r"https?://(?:www\\.)?(?:vm\\.)?tiktok\\.com/[^\\s<>]+", original)
+    tiktok_requests = ("phân tích", "xem giúp", "tóm tắt", "thông tin video", "video này nói gì", "đọc link", "kiểm tra link")
+    if tiktok_match and any(phrase in text for phrase in tiktok_requests):
         try:
             return await inspect_tiktok(tiktok_match.group(0).rstrip(".,!?"))
         except Exception as exc:
             print(f"TikTok inspection failed: {type(exc).__name__}: {exc}")
             return "Mình nhận ra link TikTok, nhưng trang đang chặn việc đọc thông tin công khai. Mình chưa thể xem/nghe toàn bộ video này."
+    if tiktok_match:
+        return "Mình thấy bạn gửi link TikTok rồi 😄 Bạn muốn mình làm gì với link này? Ví dụ: đọc thông tin công khai, tóm tắt metadata hoặc giúp viết caption."
 
-    # Image search returns image URLs that Discord can preview.
-    if any(word in text for word in ("tìm ảnh", "gửi ảnh", "cho xem ảnh", "hình ảnh", "ảnh về")):
-        query = re.sub(r"^(tìm|gửi|cho xem)\s*(mình|tôi|tớ)?\s*(ảnh|hình ảnh)?\s*(về|của)?\s*", "", original, flags=re.I).strip()
+    # Chỉ tìm ảnh khi người dùng yêu cầu rõ ràng.
+    if any(phrase in text for phrase in ("tìm ảnh", "tìm hình", "gửi ảnh", "cho xem ảnh", "kiếm ảnh")):
+        query = re.sub(r"^(tìm|gửi|cho xem|kiếm)\\s*(mình|tôi|tớ)?\\s*(ảnh|hình ảnh|hình)?\\s*(về|của)?\\s*", "", original, flags=re.I).strip()
         try:
             images = await asyncio.to_thread(search_images, query or original, 3)
             urls = [item.get("image") for item in images if item.get("image")]
             if urls:
-                return "Mình tìm được ảnh liên quan đây 🖼️\n" + "\n".join(urls[:3])
+                return "Mình tìm được ảnh liên quan đây 🖼️\\n" + "\\n".join(urls[:3])
             return "Mình chưa tìm được ảnh phù hợp. Bạn mô tả chủ thể, màu sắc hoặc phong cách nhé."
         except Exception as exc:
             print(f"Image search failed: {type(exc).__name__}: {exc}")
