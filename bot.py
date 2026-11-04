@@ -166,7 +166,8 @@ async def delete_ai_channel_command(interaction: discord.Interaction):
 async def chat(interaction: discord.Interaction, message: str):
     await interaction.response.defer(thinking=True)
     memories = get_memories(interaction.user.id)
-    answer = await generate_reply(interaction.user.id, message, memories)\n    await interaction.followup.send(answer[:1900])
+    answer = await generate_reply(interaction.user.id, message, memories)
+    await interaction.followup.send(answer[:1900])
 
 
 @client.event
@@ -177,7 +178,11 @@ async def on_message(message: discord.Message):
     if channel_id != message.channel.id:
         return
     memories = get_memories(message.author.id)
-    try:\n        answer = await generate_reply(message.author.id, message.content, memories)\n        await message.reply(answer[:1900], mention_author=False)\n    except RuntimeError as exc:\n        await message.reply(f\"{exc}\", mention_author=False)
+    try:
+        answer = await generate_reply(message.author.id, message.content, memories)
+        await message.reply(answer[:1900], mention_author=False)
+    except RuntimeError as exc:
+        await message.reply(f"{exc}", mention_author=False)
 
 
 @client.tree.command(name="remember", description="Bảo Bot 3 ghi nhớ một điều")
