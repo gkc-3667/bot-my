@@ -642,16 +642,18 @@ async def help_command(interaction: discord.Interaction):
     await interaction.response.send_message(
         "Bot 3 — hướng dẫn\n"
         "/chat message: Trò chuyện với bot.\n"
-        "/search query: Tìm kiếm trang web trên Internet.\n"
-        "/remember note: Lưu một điều vào trí nhớ riêng của bạn.\n"
-        "/profile: Xem các ghi chú bot đã lưu về bạn.\n"
-        "/forget: Xóa toàn bộ ghi chú của bạn.\n"
-        "/help: Hiện hướng dẫn này.\n"
-        "/set_ai_channel channel: Đặt kênh tự động trả lời (quản trị viên).\n"
-        "/delete_ai_channel: Xóa kênh AI (quản trị viên).\n\n"
-        "Bot 3 tìm kiếm web không cần API key AI; trả kết quả kèm nguồn để bạn kiểm tra.\n"
-        "/forget cũng xóa lịch sử trò chuyện của bạn.\\n"
-        "Chế độ không cần API AI: tìm web, đọc trang, tóm tắt trích xuất và tìm tài liệu code.",
+        "/search query: Tìm kiếm trên Internet.\n"
+        "/read url: Đọc nội dung trang web.\n"
+        "/summarize url: Tóm tắt trang web.\n"
+        "/code question: Tìm tài liệu và ví dụ lập trình.\n"
+        "/remember note: Lưu ghi chú riêng.\n"
+        "/profile: Xem những điều bot nhớ về bạn.\n"
+        "/forget: Xóa ghi chú và lịch sử trò chuyện.\n"
+        "/set_ai_channel channel: Cài kênh AI (quản trị viên).\n"
+        "/delete_ai_channel: Tắt kênh AI (quản trị viên).\n"
+        "/help: Hiện hướng dẫn này.\n\n"
+        "Bot 3 không cần API key AI. Bot tìm kiếm web, đọc trang, tóm tắt trích xuất "
+        "và tra cứu tài liệu code. Đây chưa phải mô hình AI tạo sinh như ChatGPT.",
         ephemeral=True,
     )
 
