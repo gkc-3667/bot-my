@@ -63,14 +63,17 @@ def delete_memories(user_id: int):
         return cursor.rowcount
 
 
-def make_reply(message: str, memories: list[str]) -> str:
-    original = message.strip()
+_last_reply_by_group = {}\n\ndef make_reply(message: str, memories: list[str]) -> str:\n    original = message.strip()
     text = original.lower()
     if not text:
         return "Bạn chưa nhập câu hỏi kìa 😄"
 
     def choose(options):
-        return random.choice(options)
+        key = tuple(options)
+        choices = [item for item in options if item != _last_reply_by_group.get(key)]
+        selected = random.choice(choices or options)
+        _last_reply_by_group[key] = selected
+        return selected
 
     # Safe arithmetic: only numbers and basic arithmetic operators are accepted.
     import ast
