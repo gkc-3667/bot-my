@@ -5,9 +5,11 @@ import threading
 from datetime import datetime, timezone
 
 import discord
+from dotenv import load_dotenv
 from discord import app_commands
 from flask import Flask, jsonify
 
+load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
 
