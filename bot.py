@@ -6,6 +6,9 @@ import sqlite3
 import threading
 import ipaddress
 import socket
+import time
+import json
+import unicodedata
 from datetime import datetime, timezone
 
 import discord
@@ -19,6 +22,11 @@ from bs4 import BeautifulSoup
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
+PASTEFY_RAW_URL = os.getenv("PASTEFY_RAW_URL", "").strip()
+
+# Kho kiến thức Pastefy: tải lại tối đa mỗi 5 phút để giảm băng thông và độ trễ.
+_pastefy_cache = {"expires": 0.0, "entries": []}
+_pastefy_lock = threading.Lock()
 
 web = Flask(__name__)
 
@@ -106,6 +114,116 @@ def clear_chat_history(user_id: int):
     with connect_db() as conn:
         cursor = conn.execute("DELETE FROM chat_history WHERE user_id = ?", (str(user_id),))
         return cursor.rowcount
+
+
+def normalize_knowledge_text(value: str) -> str:
+    value = unicodedata.normalize("NFD", str(value).lower())
+    value = "".join(ch for ch in value if unicodedata.category(ch) != "Mn")
+    return value.replace("đ", "d")
+
+
+def parse_pastefy_knowledge(raw: str) -> list[dict]:
+    """Đọc kho Q&A dạng JSON hoặc văn bản Q:/A:; tuyệt đối không thực thi nội dung."""
+    entries = []
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            data = data.get("items", data.get("qa", data.get("data", [])))
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict):
+                    question = item.get("question") or item.get("q")
+                    answer = item.get("answer") or item.get("a")
+                    if question and answer:
+                        entries.append({"question": str(question)[:500], "answer": str(answer)[:2500]})
+            if entries:
+                return entries[:500]
+    except (ValueError, TypeError):
+        pass
+
+    question = None
+    answer_lines = []
+    def flush():
+        if question and answer_lines:
+            entries.append({"question": question[:500], "answer": "\n".join(answer_lines).strip()[:2500]})
+
+    for line in raw.splitlines():
+        stripped = line.strip()
+        q_match = re.match(r"^(?:Q|Question|Câu hỏi)\s*:\s*(.+)$", stripped, re.I)
+        a_match = re.match(r"^(?:A|Answer|Trả lời)\s*:\s*(.*)$", stripped, re.I)
+        if q_match:
+            flush()
+            question = q_match.group(1).strip()
+            answer_lines = []
+        elif a_match and question:
+            answer_lines = [a_match.group(1).strip()] if a_match.group(1).strip() else []
+        elif question and answer_lines and stripped and stripped != "---":
+            answer_lines.append(stripped)
+    flush()
+    return entries[:500]
+
+
+def load_pastefy_knowledge(force: bool = False) -> list[dict]:
+    if not PASTEFY_RAW_URL:
+        return []
+    now = time.monotonic()
+    with _pastefy_lock:
+        if not force and now < _pastefy_cache["expires"]:
+            return _pastefy_cache["entries"]
+        try:
+            response = requests.get(
+                PASTEFY_RAW_URL,
+                timeout=(3, 6),
+                headers={"User-Agent": "GKCAI-Knowledge/1.0"},
+            )
+            response.raise_for_status()
+            raw = response.text[:500_000]
+            entries = parse_pastefy_knowledge(raw)
+            _pastefy_cache["entries"] = entries
+            _pastefy_cache["expires"] = now + 300
+            print(f"Pastefy knowledge loaded: {len(entries)} Q&A entries")
+            return entries
+        except Exception as exc:
+            print(f"Pastefy knowledge unavailable: {type(exc).__name__}: {exc}")
+            # Dùng bản cache cũ nếu Pastefy tạm thời không truy cập được.
+            _pastefy_cache["expires"] = now + 60
+            return _pastefy_cache["entries"]
+
+
+def find_pastefy_answer(message: str) -> str | None:
+    """Tìm câu hỏi gần nhất trong kho kiến thức bằng so khớp từ khóa nhẹ."""
+    entries = load_pastefy_knowledge()
+    if not entries:
+        return None
+
+    stopwords = {
+        "la", "gi", "cua", "cho", "minh", "toi", "ban", "voi", "mot", "nhung",
+        "cac", "the", "nao", "sao", "hay", "giup", "ve", "trong", "co", "khong",
+        "duoc", "nhe", "a", "thi", "va", "la", "is", "the", "what", "how", "does",
+    }
+    query = normalize_knowledge_text(message)
+    query_tokens = {w for w in re.findall(r"[a-z0-9]{2,}", query) if w not in stopwords}
+    if not query_tokens:
+        return None
+
+    best = None
+    best_score = 0.0
+    for item in entries:
+        q_norm = normalize_knowledge_text(item["question"])
+        q_tokens = {w for w in re.findall(r"[a-z0-9]{2,}", q_norm) if w not in stopwords}
+        overlap = len(query_tokens & q_tokens)
+        if overlap == 0:
+            continue
+        score = overlap / max(1, min(len(query_tokens), len(q_tokens)))
+        if q_norm and (q_norm in query or query in q_norm):
+            score = 1.0
+        if overlap >= 2 and score > best_score:
+            best, best_score = item, score
+
+    if best and best_score >= 0.5:
+        answer = best["answer"].replace("@everyone", "@ everyone").replace("@here", "@ here")
+        return ("📚 **Mình tìm được trong kho kiến thức:**\n" + answer)[:1750]
+    return None
 
 
 
@@ -297,6 +415,15 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
         except Exception as exc:
             print(f"Image search failed: {type(exc).__name__}: {exc}")
             return "Dịch vụ tìm ảnh đang lỗi hoặc giới hạn truy cập. Bạn thử lại sau nhé."
+
+    # Tra cứu kho kiến thức Pastefy trước khi dùng câu trả lời dự phòng offline.
+    # Tải mạng chạy ở thread để không chặn Discord event loop.
+    try:
+        remote_answer = await asyncio.to_thread(find_pastefy_answer, original)
+        if remote_answer:
+            return remote_answer
+    except Exception as exc:
+        print(f"Knowledge lookup failed: {type(exc).__name__}: {exc}")
 
     local = make_reply(original, memories, history)
     if not should_search_message(original) or re.fullmatch(r"[\d\s.+\-*/()%]+", original):
