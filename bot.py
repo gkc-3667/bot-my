@@ -640,9 +640,10 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     if not (should_search_message(original) or should_auto_search_message(original)):
         return local[:1800]
 
-    query = original
+    # Giữ chủ đề trước khi người dùng hỏi tiếp ngắn gọn, để tìm web đúng ngữ cảnh.
+    query = contextualize_followup(original, history)
     if any(term in text for term in ("trend tiktok", "trending tiktok", "xu hướng tiktok", "trend trên tiktok", "đú trend")):
-        query = "TikTok trends viral trending topics 2026 " + original
+        query = "TikTok trends viral trending topics 2026 " + query
 
     try:
         results = await asyncio.to_thread(run_web_search, query, 6)
