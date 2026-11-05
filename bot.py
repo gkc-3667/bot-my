@@ -386,6 +386,27 @@ def offline_expert_reply(message: str, history=None):
         (("sqlite", "sqlite là gì", "cơ sở dữ liệu"), "SQLite là cơ sở dữ liệu gọn nhẹ lưu trong một file. Nó phù hợp để bot lưu cấu hình kênh, lịch sử chat và ghi nhớ mà không cần máy chủ database riêng."),
         (("discord intent", "message content intent", "intent là gì"), "Intent là nhóm sự kiện/dữ liệu Discord cho phép bot nhận. Muốn đọc nội dung tin nhắn, cần bật Message Content Intent trong Developer Portal và intents.message_content = True trong code."),
         (("biến môi trường", "environment variable"), "Biến môi trường là cấu hình truyền cho chương trình khi chạy. Dùng nó để giữ DISCORD_TOKEN ngoài mã nguồn, tránh đưa bí mật lên GitHub."),
+
+        (("list là gì", "danh sách trong python", "python list"), "List là danh sách có thứ tự, có thể thay đổi và chứa nhiều kiểu dữ liệu. Ví dụ: numbers = [1, 2, 3]; numbers.append(4). Dùng list khi cần thêm, xóa hoặc duyệt nhiều phần tử."),
+        (("dictionary là gì", "dict là gì", "từ điển python", "python dict"), "Dict lưu dữ liệu theo cặp khóa–giá trị. Ví dụ: user = {'name': 'An', 'age': 18}; print(user.get('name')). Dùng get() để đọc khóa an toàn khi khóa có thể không tồn tại."),
+        (("tuple là gì", "python tuple"), "Tuple giống list nhưng không thể thay đổi sau khi tạo. Ví dụ: point = (10, 20). Dùng tuple cho nhóm giá trị cố định."),
+        (("set là gì", "python set"), "Set là tập hợp không giữ phần tử trùng lặp. Ví dụ: unique = set([1, 1, 2]) cho kết quả {1, 2}. Nó hữu ích để loại trùng và kiểm tra thành viên nhanh."),
+        (("hàm trong python", "function là gì", "def là gì"), "Hàm gom một công việc thành phần có thể tái sử dụng. Ví dụ: def add(a, b): return a + b. Gọi bằng add(2, 3); return gửi kết quả về nơi gọi."),
+        (("class là gì", "lập trình hướng đối tượng", "oop là gì"), "Class là bản thiết kế để tạo object. Nó gom dữ liệu và hành vi liên quan. Trong Python, __init__ khởi tạo thuộc tính, còn self tham chiếu đến object hiện tại."),
+        (("try except là gì", "xử lý ngoại lệ", "exception là gì"), "try/except giúp xử lý lỗi dự kiến mà không làm chương trình dừng đột ngột. Chỉ bắt loại lỗi bạn có thể xử lý; tránh except Exception quá rộng nếu không ghi log và có phương án dự phòng."),
+        (("pip là gì", "cài thư viện python"), "pip là công cụ cài gói Python. Ví dụ: python -m pip install discord.py. Với host, ghi tên gói vào requirements.txt để môi trường cài lại sau mỗi lần deploy."),
+        (("venv là gì", "virtual environment", "môi trường ảo python"), "venv tạo môi trường Python riêng cho từng dự án, tránh xung đột phiên bản thư viện. Tạo bằng python -m venv .venv; sau đó kích hoạt môi trường rồi cài dependencies."),
+        (("git là gì", "github là gì", "git và github"), "Git là hệ thống quản lý phiên bản giúp theo dõi thay đổi code. GitHub là dịch vụ lưu trữ repository Git và hỗ trợ cộng tác, issue, pull request. Commit lưu một mốc thay đổi; push gửi commit lên máy chủ."),
+        (("http là gì", "https là gì", "http và https"), "HTTP là giao thức trao đổi dữ liệu web. HTTPS là HTTP được bảo vệ bằng TLS, giúp mã hóa kết nối và xác thực máy chủ. Không gửi token hoặc mật khẩu qua HTTP không mã hóa."),
+        (("mã trạng thái http", "http status code", "lỗi 404 là gì", "lỗi 500 là gì"), "Một số mã HTTP thường gặp: 200 thành công; 301/302 chuyển hướng; 400 yêu cầu sai; 401 chưa xác thực; 403 không đủ quyền; 404 không tìm thấy đường dẫn; 429 gửi quá nhiều yêu cầu; 500 lỗi phía máy chủ."),
+        (("rate limit là gì", "giới hạn tốc độ", "429 là gì"), "Rate limit giới hạn số yêu cầu trong một khoảng thời gian để bảo vệ dịch vụ. Khi gặp HTTP 429, hãy đọc Retry-After nếu có, chờ rồi thử lại; không gửi vòng lặp liên tục."),
+        (("sql injection là gì", "truy vấn sql an toàn"), "SQL injection xảy ra khi ghép trực tiếp dữ liệu người dùng vào câu SQL. Hãy dùng truy vấn tham số hóa, ví dụ conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)), thay vì nối chuỗi."),
+        (("event loop là gì", "vòng lặp sự kiện"), "Event loop điều phối coroutine và I/O bất đồng bộ. Trong discord.py, đừng gọi requests.get() đồng bộ trực tiếp trong handler vì nó chặn bot; dùng aiohttp hoặc asyncio.to_thread cho hàm đồng bộ."),
+        (("flask là gì", "gunicorn là gì"), "Flask là framework web Python gọn nhẹ để tạo route như /health. Gunicorn là WSGI server chạy ứng dụng Flask trong môi trường triển khai. Discord bot và web health endpoint là hai phần riêng."),
+        (("llm là gì", "mô hình ngôn ngữ lớn", "ai offline là gì"), "LLM là mô hình ngôn ngữ lớn được huấn luyện trên dữ liệu để tạo và hiểu văn bản. Một bot Python chỉ dùng if/else và mẫu câu không phải LLM; nó chỉ xử lý những tình huống đã được lập trình. Muốn gần ChatGPT cần mô hình đã huấn luyện và tài nguyên tính toán đáng kể."),
+        (("ram là gì", "thiếu ram", "bộ nhớ ram"), "RAM là bộ nhớ làm việc tạm thời của chương trình. Bot Discord nhẹ có thể chạy với ít RAM, nhưng mô hình ngôn ngữ lớn thường cần nhiều GB RAM/VRAM. Giảm kích thước code không thể thay thế tài nguyên cần cho suy luận AI."),
+        (("token discord là gì", "discord bot token"), "Discord bot token là bí mật dùng để xác thực bot. Lưu trong biến môi trường DISCORD_TOKEN, không commit lên GitHub, không gửi vào chat hoặc ảnh chụp màn hình. Nếu lộ token, hãy reset ngay trong Developer Portal."),
+        (("message content intent", "bật intent đọc tin nhắn"), "Để bot đọc nội dung tin nhắn thường, bật Message Content Intent ở Discord Developer Portal và đặt intents.message_content = True trong code. Bot cũng cần quyền View Channel, Send Messages và Read Message History ở kênh."),
     ]
     for triggers, explanation in explainers:
         if any(trigger in low for trigger in triggers):
@@ -718,39 +739,3 @@ async def xoabonho(interaction: discord.Interaction):
 async def on_message(message: discord.Message):
     if message.author.bot or message.guild is None:
         return
-    channel_id = get_ai_channel(message.guild.id)
-    if channel_id != message.channel.id:
-        return
-    # Chỉ ghi nhớ khi thành viên chủ động yêu cầu; không tự thu thập thông tin cá nhân.
-    requested_memory = extract_explicit_memory(message.content)
-    if requested_memory:
-        save_memory(message.author.id, requested_memory)
-        limit_user_memories(message.author.id)
-        answer = "Mình đã ghi nhớ điều bạn vừa dặn. 🧠 Bạn có thể dùng /xoabonho để xóa toàn bộ bộ nhớ của bot."
-        save_chat_turn(message.author.id, message.content, answer)
-        await message.reply(answer, mention_author=False)
-        return
-
-    async with message.channel.typing():
-        try:
-            memories = get_memories(message.author.id)
-            history = get_chat_history(message.author.id)
-            answer = await smart_reply(message.content, memories, history)
-        except Exception as exc:
-            print(f"Chat handler error: {type(exc).__name__}: {exc}")
-            answer = "Mình vừa gặp trục trặc khi xử lý tin nhắn. Bạn thử gửi lại nhé; nếu lặp lại, báo quản trị viên kiểm tra log."
-        save_chat_turn(message.author.id, message.content, answer)
-
-    for index, chunk in enumerate(split_discord_message(answer)):
-        if index == 0:
-            await message.reply(chunk, mention_author=False)
-        else:
-            await message.channel.send(chunk)
-
-
-if __name__ == "__main__":
-    threading.Thread(target=run_web, daemon=True).start()
-    if not TOKEN:
-        raise RuntimeError("Thiếu biến môi trường DISCORD_TOKEN. Hãy thêm token bot trong phần Environment/Secrets của host.")
-    connect_db().close()
-    client.run(TOKEN)
