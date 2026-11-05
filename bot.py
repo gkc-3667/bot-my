@@ -508,6 +508,26 @@ async def read_and_summarize(url: str) -> dict:
     return await asyncio.to_thread(fetch_public_page, url)
 
 
+def should_auto_search_message(message: str) -> bool:
+    """Tìm web dự phòng cho câu hỏi kiến thức chưa có đáp án offline."""
+    text = message.strip().lower()
+    if len(text) < 12 or len(text) > 350:
+        return False
+    casual = (
+        "xin chào", "chào bạn", "hello", "hey", "cảm ơn", "thanks",
+        "haha", "😂", "🤣", "kể chuyện cười", "làm mình cười",
+        "bạn khỏe không", "bạn là ai", "nhớ rằng", "ghi nhớ",
+    )
+    if any(term in text for term in casual):
+        return False
+    question_markers = (
+        "?", "là gì", "tại sao", "vì sao", "khi nào", "ở đâu",
+        "bao nhiêu", "ai là", "cách hoạt động", "so sánh",
+        "nguyên nhân", "ý nghĩa", "how ", "what ", "why ", "when ",
+    )
+    return any(term in text for term in question_markers)
+
+
 def should_search_message(message: str) -> bool:
     """Chỉ tìm web khi người dùng chủ động yêu cầu tra cứu."""
     text = message.lower().strip()
