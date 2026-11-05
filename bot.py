@@ -123,7 +123,7 @@ def normalize_knowledge_text(value: str) -> str:
 
 
 def parse_pastefy_knowledge(raw: str) -> list[dict]:
-    """Đọc kho Q&A dạng JSON hoặc văn bản Q:/A:; tuyệt đối không thực thi nội dung."""
+    """Đọc Q&A JSON hoặc văn bản; hỗ trợ từ khóa, bí danh và chủ đề."""
     entries = []
     try:
         data = json.loads(raw)
@@ -131,37 +131,62 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
             data = data.get("items", data.get("qa", data.get("data", [])))
         if isinstance(data, list):
             for item in data:
-                if isinstance(item, dict):
-                    question = item.get("question") or item.get("q")
-                    answer = item.get("answer") or item.get("a")
-                    if question and answer:
-                        entries.append({"question": str(question)[:500], "answer": str(answer)[:2500]})
+                if not isinstance(item, dict):
+                    continue
+                question = item.get("question") or item.get("q")
+                answer = item.get("answer") or item.get("a")
+                if question and answer:
+                    aliases = item.get("aliases", item.get("alias", []))
+                    tags = item.get("tags", item.get("keywords", []))
+                    if isinstance(aliases, str):
+                        aliases = [x.strip() for x in re.split(r"[,;|]", aliases) if x.strip()]
+                    if isinstance(tags, str):
+                        tags = [x.strip() for x in re.split(r"[,;|]", tags) if x.strip()]
+                    entries.append({
+                        "question": str(question)[:500],
+                        "answer": str(answer)[:2500],
+                        "aliases": [str(x)[:180] for x in aliases[:12]] if isinstance(aliases, list) else [],
+                        "tags": [str(x)[:80] for x in tags[:20]] if isinstance(tags, list) else [],
+                    })
             if entries:
                 return entries[:500]
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, AttributeError):
         pass
 
     question = None
     answer_lines = []
+    aliases = []
+    tags = []
+
     def flush():
         if question and answer_lines:
-            entries.append({"question": question[:500], "answer": "\n".join(answer_lines).strip()[:2500]})
+            entries.append({
+                "question": question[:500],
+                "answer": "\n".join(answer_lines).strip()[:2500],
+                "aliases": aliases[:12],
+                "tags": tags[:20],
+            })
 
     for line in raw.splitlines():
         stripped = line.strip()
-        q_match = re.match(r"^(?:Q|Question|Câu hỏi)\s*:\s*(.+)$", stripped, re.I)
-        a_match = re.match(r"^(?:A|Answer|Trả lời)\s*:\s*(.*)$", stripped, re.I)
+        q_match = re.match(r"^(?:Q|Question|Câu hỏi)\\s*:\\s*(.+)$", stripped, re.I)
+        a_match = re.match(r"^(?:A|Answer|Trả lời)\\s*:\\s*(.*)$", stripped, re.I)
+        alias_match = re.match(r"^(?:ALIAS|ALIASES|Bí danh)\\s*:\\s*(.*)$", stripped, re.I)
+        tag_match = re.match(r"^(?:TAGS?|KEYWORDS|Từ khóa)\\s*:\\s*(.*)$", stripped, re.I)
         if q_match:
             flush()
             question = q_match.group(1).strip()
-            answer_lines = []
+            answer_lines, aliases, tags = [], [], []
+        elif alias_match and question and not answer_lines:
+            aliases.extend(x.strip() for x in re.split(r"[,;|]", alias_match.group(1)) if x.strip())
+        elif tag_match and question and not answer_lines:
+            tags.extend(x.strip() for x in re.split(r"[,;|]", tag_match.group(1)) if x.strip())
         elif a_match and question:
             answer_lines = [a_match.group(1).strip()] if a_match.group(1).strip() else []
         elif question and answer_lines and stripped and stripped != "---":
             answer_lines.append(stripped)
     flush()
     return entries[:500]
-
 
 def load_pastefy_knowledge(force: bool = False) -> list[dict]:
     if not PASTEFY_RAW_URL:
@@ -197,24 +222,27 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
 
 
 def contextualize_followup(message: str, history=None) -> str:
-    """Gắn câu hỏi ngắn tiếp nối với chủ đề gần nhất, không thay đổi câu hỏi độc lập."""
+    """Chỉ nối ngữ cảnh khi câu hiện tại thực sự là câu hỏi tiếp nối."""
     history = history or []
     text = message.strip()
     low = normalize_knowledge_text(text)
-    followup_markers = (
+    markers = (
         "con cai do", "con no", "the con", "vay con", "noi ro hon",
         "giai thich them", "tai sao lai vay", "y minh la", "cach do",
-        "no hoat dong the nao", "lam tiep", "tiep di",
+        "no hoat dong the nao", "lam tiep", "tiep di", "vi sao",
+        "cu the hon", "cho vi du", "vi du nua",
     )
-    if len(text.split()) <= 9 or any(marker in low for marker in followup_markers):
-        previous_user = next((content for role, content in reversed(history) if role == "user"), "")
-        if previous_user and normalize_knowledge_text(previous_user) not in low:
-            return (previous_user[:350] + " " + text)[:650]
+    # Không gắn câu hỏi ngắn độc lập như "Python là gì?" vào chủ đề cũ.
+    is_fragment = any(marker in low for marker in markers)
+    if not is_fragment:
+        return text
+    previous_user = next((content for role, content in reversed(history) if role == "user"), "")
+    if previous_user:
+        return (previous_user[:300] + " | Câu hỏi tiếp nối: " + text)[:650]
     return text
 
-
 def find_pastefy_answer(message: str) -> str | None:
-    """Xếp hạng kiến thức và ghép tối đa 3 mục liên quan; không đoán khi điểm thấp."""
+    """Tìm Q&A bằng điểm có trọng số, bí danh và từ khóa; chỉ ghép mục đủ liên quan."""
     entries = load_pastefy_knowledge()
     if not entries:
         return None
@@ -222,70 +250,99 @@ def find_pastefy_answer(message: str) -> str | None:
     stopwords = {
         "la", "gi", "cua", "cho", "minh", "toi", "ban", "voi", "mot", "nhung",
         "cac", "the", "nao", "sao", "hay", "giup", "ve", "trong", "co", "khong",
-        "duoc", "nhe", "a", "thi", "va", "is", "what", "how", "does",
-        "please", "an", "to", "of", "in", "on", "for", "with",
+        "duoc", "nhe", "a", "thi", "va", "is", "what", "how", "does", "please",
+        "an", "to", "of", "in", "on", "for", "with", "vay", "thi", "la",
     }
 
-    def terms(value: str) -> list[str]:
+    def terms(value):
         normalized = normalize_knowledge_text(value)
         return [w for w in re.findall(r"[a-z0-9]{2,}", normalized) if w not in stopwords]
 
-    query = normalize_knowledge_text(message)
     query_terms = terms(message)
     query_tokens = set(query_terms)
     if not query_tokens:
         return None
 
+    # IDF giảm ảnh hưởng của từ quá phổ biến trong toàn bộ kho.
+    document_tokens = []
+    for item in entries:
+        text = " ".join([item.get("question", "")] + item.get("aliases", []) + item.get("tags", []))
+        document_tokens.append(set(terms(text)))
+    total_docs = max(1, len(document_tokens))
+    idf = {}
+    for token in query_tokens:
+        containing = sum(1 for doc in document_tokens if token in doc)
+        idf[token] = 1.0 + (total_docs - containing + 0.5) / (containing + 0.5)
+
     query_bigrams = set(zip(query_terms, query_terms[1:]))
     ranked = []
     for index, item in enumerate(entries):
-        q_norm = normalize_knowledge_text(item["question"])
-        q_terms = terms(item["question"])
-        q_tokens = set(q_terms)
-        if not q_tokens:
-            continue
-        overlap = len(query_tokens & q_tokens)
+        question = item.get("question", "")
+        aliases = item.get("aliases", [])
+        tags = item.get("tags", [])
+        searchable = " ".join([question] + aliases + tags)
+        item_terms = terms(searchable)
+        item_tokens = set(item_terms)
+        overlap = query_tokens & item_tokens
         if not overlap:
             continue
-        precision = overlap / len(query_tokens)
-        recall = overlap / len(q_tokens)
-        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-        q_bigrams = set(zip(q_terms, q_terms[1:]))
-        phrase_score = len(query_bigrams & q_bigrams) / max(1, len(query_bigrams | q_bigrams))
-        containment = 1.0 if (q_norm in query or query in q_norm) else 0.0
-        score = (0.62 * f1) + (0.23 * phrase_score) + (0.15 * containment)
-        if len(query_tokens) == 1 and query_tokens == q_tokens:
-            score = max(score, 0.86)
-        ranked.append((score, overlap, index, item))
+
+        weighted_total = sum(idf.get(token, 1.0) for token in query_tokens)
+        weighted_overlap = sum(idf.get(token, 1.0) for token in overlap)
+        coverage = weighted_overlap / max(0.001, weighted_total)
+        precision = len(overlap) / max(1, len(item_tokens))
+        f1 = 2 * coverage * precision / max(0.001, coverage + precision)
+
+        question_norm = normalize_knowledge_text(question)
+        query_norm = normalize_knowledge_text(message)
+        exact_phrase = 1.0 if query_norm in question_norm or question_norm in query_norm else 0.0
+        alias_phrase = max(
+            (1.0 if normalize_knowledge_text(alias) in query_norm or query_norm in normalize_knowledge_text(alias) else 0.0)
+            for alias in aliases
+        ) if aliases else 0.0
+        item_bigrams = set(zip(item_terms, item_terms[1:]))
+        phrase = len(query_bigrams & item_bigrams) / max(1, len(query_bigrams | item_bigrams))
+        tag_hits = len(query_tokens & set(terms(" ".join(tags)))) / max(1, len(query_tokens))
+        score = 0.58 * coverage + 0.16 * f1 + 0.12 * phrase + 0.09 * exact_phrase + 0.05 * alias_phrase
+        score += min(0.06, tag_hits * 0.06)
+        ranked.append((min(1.0, score), len(overlap), index, item))
 
     if not ranked:
         return None
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
     best_score, best_overlap, _, best = ranked[0]
-    threshold = 0.56 if len(query_tokens) >= 2 else 0.82
+    threshold = 0.48 if len(query_tokens) >= 3 else 0.64
     if best_score < threshold or best_overlap < min(2, len(query_tokens)):
         return None
-    if len(ranked) > 1 and best_score - ranked[1][0] < 0.035:
-        # Nếu hai câu hỏi gần như ngang điểm, không chọn bừa một đáp án.
-        return None
+
+    # Câu ngắn có hai ý định gần ngang nhau thì hỏi lại thay vì chọn ngẫu nhiên.
+    if len(query_tokens) <= 3 and len(ranked) > 1:
+        second_score, second_overlap = ranked[1][0], ranked[1][1]
+        if second_score >= threshold and best_score - second_score < 0.025 and second_overlap >= best_overlap:
+            return "Mình tìm thấy vài mục khá giống nhau trong kho Pastefy nên chưa muốn chọn bừa. Bạn nói rõ thêm một từ khóa hoặc ngữ cảnh nhé."
 
     selected = []
     seen_answers = set()
+    secondary_floor = max(threshold, best_score * 0.70)
     for score, overlap, _, item in ranked:
-        if len(selected) >= 3 or score < max(threshold, best_score * 0.72):
+        if len(selected) >= 3 or score < secondary_floor:
             continue
-        answer = item["answer"].strip()
+        answer = item.get("answer", "").strip()
         fingerprint = normalize_knowledge_text(answer)[:180]
-        if fingerprint in seen_answers:
+        if not answer or fingerprint in seen_answers:
             continue
         seen_answers.add(fingerprint)
-        selected.append((item["question"], answer))
+        selected.append((item.get("question", "Thông tin liên quan"), answer, score))
 
-    parts = ["📚 **Mình tổng hợp từ kho kiến thức:**"]
-    for question, answer in selected:
+    if not selected:
+        return None
+
+    parts = ["📚 **Mình tìm được thông tin phù hợp trong kho kiến thức:**"]
+    for question, answer, score in selected:
         safe_answer = answer.replace("@everyone", "@ everyone").replace("@here", "@ here")
-        parts.append(f"**{question[:180]}**\n{safe_answer[:850]}")
-    parts.append("_Mình chỉ ghép các mục có độ liên quan cao; nếu thiếu chi tiết, bạn có thể hỏi rõ hơn._")
+        parts.append(f"**{question[:180]}**\n{safe_answer[:780]}")
+    if len(selected) > 1:
+        parts.append("_Mình ghép các mục liên quan trong Pastefy; hãy hỏi thêm nếu muốn đào sâu một phần._")
     return "\n\n".join(parts)[:1750]
 
 def run_web_search(query: str, limit: int = 6):
