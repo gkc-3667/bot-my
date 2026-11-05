@@ -169,10 +169,10 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
 
     for line in raw.splitlines():
         stripped = line.strip()
-        q_match = re.match(r"^(?:Q|Question|Câu hỏi)\\s*:\\s*(.+)$", stripped, re.I)
-        a_match = re.match(r"^(?:A|Answer|Trả lời)\\s*:\\s*(.*)$", stripped, re.I)
-        alias_match = re.match(r"^(?:ALIAS|ALIASES|Bí danh)\\s*:\\s*(.*)$", stripped, re.I)
-        tag_match = re.match(r"^(?:TAGS?|KEYWORDS|Từ khóa)\\s*:\\s*(.*)$", stripped, re.I)
+        q_match = re.match(r"^(?:Q|Question|Câu hỏi)\s*:\s*(.+)$", stripped, re.I)
+        a_match = re.match(r"^(?:A|Answer|Trả lời)\s*:\s*(.*)$", stripped, re.I)
+        alias_match = re.match(r"^(?:ALIAS|ALIASES|Bí danh)\s*:\s*(.*)$", stripped, re.I)
+        tag_match = re.match(r"^(?:TAGS?|KEYWORDS|Từ khóa)\s*:\s*(.*)$", stripped, re.I)
         if q_match:
             flush()
             question = q_match.group(1).strip()
