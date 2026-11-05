@@ -18,6 +18,7 @@ from flask import Flask, jsonify
 from ddgs import DDGS
 import requests
 from bs4 import BeautifulSoup
+from gkc_brain import generate_reply as gkc_generate_reply, model_is_configured
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -628,14 +629,28 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     if obvious_offline:
         return local[:1800]
 
-    # Chỉ dùng Pastefy khi tìm được câu hỏi đủ tương đồng; không đoán khi điểm thấp.
+    # Lấy tư liệu liên quan làm ngữ cảnh cho mô hình GKC (không nạp toàn bộ kho 80k).
+    knowledge_context = None
     try:
         knowledge_query = contextualize_followup(original, history)
-        remote_answer = await asyncio.to_thread(find_pastefy_answer, knowledge_query)
-        if remote_answer:
-            return remote_answer
+        knowledge_context = await asyncio.to_thread(find_pastefy_answer, knowledge_query)
     except Exception as exc:
         print(f"Knowledge lookup failed: {type(exc).__name__}: {exc}")
+
+    # Nếu đã cấu hình máy chủ mô hình tự triển khai, dùng nó làm bộ não hội thoại chính.
+    # Khi chưa cấu hình hoặc máy chủ lỗi, bot vẫn chạy các kỹ năng offline/tìm web hiện có.
+    if model_is_configured():
+        try:
+            model_answer = await asyncio.to_thread(
+                gkc_generate_reply, original, memories, history, knowledge_context
+            )
+            if model_answer:
+                return model_answer[:7000]
+        except Exception as exc:
+            print(f"GKC model request failed: {type(exc).__name__}: {exc}")
+
+    if knowledge_context:
+        return knowledge_context[:1800]
 
     if not (should_search_message(original) or should_auto_search_message(original)):
         return local[:1800]
