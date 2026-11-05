@@ -1130,6 +1130,23 @@ async def gkcstatus(interaction: discord.Interaction):
     )
 
 
+async def send_channel_response(message: discord.Message, content: str):
+    """Reply normally; if Discord lost the source message, send to the channel instead."""
+    try:
+        return await message.reply(
+            content,
+            mention_author=False,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+    except discord.HTTPException as exc:
+        if getattr(exc, "code", None) == 10008 or "Unknown message" in str(exc):
+            return await message.channel.send(
+                content,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        raise
+
+
 @client.event
 async def on_message(message: discord.Message):
     if message.author.bot or message.guild is None:
@@ -1156,8 +1173,8 @@ async def on_message(message: discord.Message):
         pass
 
     try:
-        history = get_chat_history(message.author.id, limit=8)
-        memories = get_memories(message.author.id, limit=10)
+        history = get_chat_history(message.author.id, limit=12)
+        memories = get_memories(message.author.id, limit=16)
         explicit_memory = extract_explicit_memory(message.content)
 
         if explicit_memory:
@@ -1170,11 +1187,7 @@ async def on_message(message: discord.Message):
         save_chat_turn(message.author.id, message.content, reply)
         sent_messages = []
         for chunk in split_discord_message(reply):
-            sent = await message.reply(
-                chunk,
-                mention_author=False,
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
+            sent = await send_channel_response(message, chunk)
             sent_messages.append(sent)
 
         # Bot cũng thả reaction vào câu trả lời của chính nó.
@@ -1190,9 +1203,8 @@ async def on_message(message: discord.Message):
     except Exception as exc:
         print(f"on_message failed: {type(exc).__name__}: {exc}")
         try:
-            await message.reply(
+            await message.channel.send(
                 "Mình vừa gặp trục trặc khi xử lý tin nhắn. Bạn thử gửi lại sau nhé.",
-                mention_author=False,
                 allowed_mentions=discord.AllowedMentions.none(),
             )
         except (discord.Forbidden, discord.HTTPException):
