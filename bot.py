@@ -24,7 +24,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
 PASTEFY_RAW_URL = os.getenv("PASTEFY_RAW_URL", "").strip()
 
-# Kho kiến thức Pastefy: hỗ trợ tối đa 5.000 Q&A, tải lại tối đa mỗi 5 phút.
+# Kho kiến thức Pastefy: hỗ trợ tối đa 60.000 Q&A (đủ bộ 50.000), cache 5 phút.
 _pastefy_cache = {"expires": 0.0, "entries": []}
 _pastefy_lock = threading.Lock()
 
@@ -149,7 +149,7 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
                         "tags": [str(x)[:80] for x in tags[:20]] if isinstance(tags, list) else [],
                     })
             if entries:
-                return entries[:5000]
+                return entries[:60000]
     except (ValueError, TypeError, AttributeError):
         pass
 
@@ -186,7 +186,7 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
         elif question and answer_lines and stripped and stripped != "---":
             answer_lines.append(stripped)
     flush()
-    return entries[:5000]
+    return entries[:60000]
 
 def load_pastefy_knowledge(force: bool = False) -> list[dict]:
     if not PASTEFY_RAW_URL:
@@ -208,11 +208,14 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
                 allow_redirects=False,
             )
             response.raise_for_status()
-            raw = response.text[:2_000_000]
+            content_length = int(response.headers.get("Content-Length", "0") or 0)
+            if content_length > 18_000_000:
+                raise ValueError("Kho Pastefy vượt giới hạn 18 MB để bảo vệ RAM của bot.")
+            raw = response.text[:18_000_000]
             entries = parse_pastefy_knowledge(raw)
             _pastefy_cache["entries"] = entries
             _pastefy_cache["expires"] = now + 300
-            print(f"Pastefy knowledge loaded: {len(entries)}/5000 Q&A entries")
+            print(f"Pastefy knowledge loaded: {len(entries)}/60000 Q&A entries")
             return entries
         except Exception as exc:
             print(f"Pastefy knowledge unavailable: {type(exc).__name__}: {exc}")
@@ -1003,6 +1006,27 @@ async def xoabonho(interaction: discord.Interaction):
         conn.execute("DELETE FROM chat_history")
     await interaction.response.send_message(
         f"Đã xóa toàn bộ dữ liệu ghi nhớ của bot: {memory_count} ghi chú và {history_count} tin nhắn lịch sử."
+    )
+
+
+@client.tree.command(name="napkho", description="Tải lại kho kiến thức Pastefy và kiểm tra số mục đã nạp")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def napkho(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    entries = await asyncio.to_thread(load_pastefy_knowledge, True)
+    if not entries:
+        await interaction.followup.send(
+            "Mình chưa nạp được dữ liệu. Hãy kiểm tra biến PASTEFY_RAW_URL và liên kết Raw của Pastefy.",
+            ephemeral=True,
+        )
+        return
+    # Báo số mục thực tế đã đọc, không khẳng định đây là số kiến thức độc lập.
+    categories = sum(1 for item in entries if item.get("category"))
+    await interaction.followup.send(
+        f"📚 Đã nạp **{len(entries):,} bản ghi Q&A** từ Pastefy. "
+        f"Giới hạn hiện tại là 60.000 bản ghi / 18 MB. "
+        "Lưu ý: số bản ghi không đồng nghĩa với số kiến thức độc lập.",
+        ephemeral=True,
     )
 
 
