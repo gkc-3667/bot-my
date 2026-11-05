@@ -197,7 +197,7 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
 
 
 def find_pastefy_answer(message: str) -> str | None:
-    """Tìm câu hỏi gần nhất trong kho kiến thức bằng so khớp từ khóa nhẹ."""
+    """Xếp hạng Q&A bằng token, cụm từ và độ bao phủ; chỉ trả lời khi đủ tự tin."""
     entries = load_pastefy_knowledge()
     if not entries:
         return None
@@ -205,32 +205,58 @@ def find_pastefy_answer(message: str) -> str | None:
     stopwords = {
         "la", "gi", "cua", "cho", "minh", "toi", "ban", "voi", "mot", "nhung",
         "cac", "the", "nao", "sao", "hay", "giup", "ve", "trong", "co", "khong",
-        "duoc", "nhe", "a", "thi", "va", "la", "is", "the", "what", "how", "does",
+        "duoc", "nhe", "a", "thi", "va", "is", "what", "how", "does",
+        "please", "an", "to", "of", "in", "on", "for", "with",
     }
+
+    def terms(value: str) -> list[str]:
+        normalized = normalize_knowledge_text(value)
+        return [w for w in re.findall(r"[a-z0-9]{2,}", normalized) if w not in stopwords]
+
     query = normalize_knowledge_text(message)
-    query_tokens = {w for w in re.findall(r"[a-z0-9]{2,}", query) if w not in stopwords}
+    query_terms = terms(message)
+    query_tokens = set(query_terms)
     if not query_tokens:
         return None
 
-    best = None
-    best_score = 0.0
-    for item in entries:
-        q_norm = normalize_knowledge_text(item["question"])
-        q_tokens = {w for w in re.findall(r"[a-z0-9]{2,}", q_norm) if w not in stopwords}
-        overlap = len(query_tokens & q_tokens)
-        if overlap == 0:
+    query_bigrams = set(zip(query_terms, query_terms[1:]))
+    ranked = []
+    for index, item in enumerate(entries):
+        question = item["question"]
+        q_norm = normalize_knowledge_text(question)
+        q_terms = terms(question)
+        q_tokens = set(q_terms)
+        if not q_tokens:
             continue
-        score = overlap / max(1, min(len(query_tokens), len(q_tokens)))
-        if q_norm and (q_norm in query or query in q_norm):
-            score = 1.0
-        if overlap >= 2 and score > best_score:
-            best, best_score = item, score
+        overlap = len(query_tokens & q_tokens)
+        if not overlap:
+            continue
 
-    if best and best_score >= 0.5:
-        answer = best["answer"].replace("@everyone", "@ everyone").replace("@here", "@ here")
-        return ("📚 **Mình tìm được trong kho kiến thức:**\n" + answer)[:1750]
-    return None
+        precision = overlap / len(query_tokens)
+        recall = overlap / len(q_tokens)
+        f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+        q_bigrams = set(zip(q_terms, q_terms[1:]))
+        phrase_score = len(query_bigrams & q_bigrams) / max(1, len(query_bigrams | q_bigrams))
+        containment = 1.0 if (q_norm in query or query in q_norm) else 0.0
+        score = (0.62 * f1) + (0.23 * phrase_score) + (0.15 * containment)
+        if len(query_tokens) == 1 and query_tokens == q_tokens:
+            score = max(score, 0.86)
+        ranked.append((score, overlap, index, item))
 
+    if not ranked:
+        return None
+    ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    best_score, best_overlap, _, best = ranked[0]
+    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+
+    threshold = 0.56 if len(query_tokens) >= 2 else 0.82
+    if best_score < threshold or best_overlap < min(2, len(query_tokens)):
+        return None
+    if second_score and best_score - second_score < 0.035:
+        return None
+
+    answer = best["answer"].replace("@everyone", "@ everyone").replace("@here", "@ here")
+    return ("📚 **Mình tìm được trong kho kiến thức:**\\n" + answer)[:1750]
 
 
 def run_web_search(query: str, limit: int = 6):
@@ -422,8 +448,21 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
             print(f"Image search failed: {type(exc).__name__}: {exc}")
             return "Dịch vụ tìm ảnh đang lỗi hoặc giới hạn truy cập. Bạn thử lại sau nhé."
 
-    # Tra cứu kho kiến thức Pastefy trước khi dùng câu trả lời dự phòng offline.
-    # Tải mạng chạy ở thread để không chặn Discord event loop.
+    # Kỹ năng chắc chắn (tính toán, chẩn đoán lỗi, viết code) được ưu tiên.
+    local = make_reply(original, memories, history)
+    obvious_offline = (
+        bool(offline_expert_reply(original, history))
+        or bool(re.fullmatch(r"[\\d\\s.+\\-*/()%]+", original))
+        or any(term in text for term in (
+            "xin chào", "chào", "hello", "hey", "cảm ơn", "thanks",
+            "kể chuyện cười", "làm mình cười", "nhớ rằng", "ghi nhớ",
+            "viết code", "viết mã", "tạo code", "tạo mã",
+        ))
+    )
+    if obvious_offline:
+        return local[:1800]
+
+    # Chỉ dùng Pastefy khi tìm được câu hỏi đủ tương đồng; không đoán khi điểm thấp.
     try:
         remote_answer = await asyncio.to_thread(find_pastefy_answer, original)
         if remote_answer:
@@ -431,8 +470,7 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     except Exception as exc:
         print(f"Knowledge lookup failed: {type(exc).__name__}: {exc}")
 
-    local = make_reply(original, memories, history)
-    if not should_search_message(original) or re.fullmatch(r"[\d\s.+\-*/()%]+", original):
+    if not should_search_message(original):
         return local[:1800]
 
     query = original
