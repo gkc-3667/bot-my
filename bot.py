@@ -18,7 +18,7 @@ from flask import Flask, jsonify
 from ddgs import DDGS
 import requests
 from bs4 import BeautifulSoup
-from gkc_brain import generate_reply as gkc_generate_reply, model_is_configured
+from gkc_brain import generate_reply as gkc_generate_reply, model_is_configured, check_model_health
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -1112,12 +1112,20 @@ async def napkho(interaction: discord.Interaction):
 
 @client.tree.command(name="gkcstatus", description="Kiểm tra trạng thái bộ não mô hình GKC")
 async def gkcstatus(interaction: discord.Interaction):
-    if model_is_configured():
-        status = "Đã có URL máy chủ và tên mô hình trong Environment. Lệnh này chưa kiểm tra máy chủ có đang phản hồi hay không."
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    try:
+        ok, status = await asyncio.to_thread(check_model_health)
+    except Exception as exc:
+        ok = False
+        status = "Không kiểm tra được máy chủ: " + type(exc).__name__
+    if not model_is_configured():
+        detail = "Bot đang dùng bộ nhớ, kho kiến thức, kỹ năng offline và tìm kiếm web dự phòng. Chưa có mô hình ngôn ngữ riêng."
+    elif ok:
+        detail = "Bộ não mô hình đã phản hồi. " + status
     else:
-        status = "Chưa kết nối mô hình ngôn ngữ riêng. Bot hiện dùng bộ nhớ, kho kiến thức, kỹ năng offline và tìm kiếm web dự phòng."
-    await interaction.response.send_message(
-        f"**Trạng thái [GKC]-AI**\n{status}",
+        detail = "Đã khai báo cấu hình nhưng mô hình chưa kết nối được. " + status
+    await interaction.followup.send(
+        f"**Trạng thái [GKC]-AI**\n{detail}",
         ephemeral=True,
     )
 
