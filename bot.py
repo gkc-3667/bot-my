@@ -244,11 +244,11 @@ def contextualize_followup(message: str, history=None) -> str:
         return (previous_user[:300] + " | Câu hỏi tiếp nối: " + text)[:650]
     return text
 
-_knowledge_index = {"source_id": None, "documents": [], "df": {}}
+_knowledge_index = {"source_id": None, "documents": [], "df": {}, "postings": {}}
 
 
 def find_pastefy_answer(message: str) -> str | None:
-    """Tìm Q&A nhanh hơn: lập chỉ mục một lần cho 5.000 mục, tái sử dụng giữa các lượt."""
+    """Tìm Q&A bằng chỉ mục đảo: chỉ chấm các mục có từ khóa trùng, tiết kiệm CPU."""
     entries = load_pastefy_knowledge()
     if not entries:
         return None
@@ -264,12 +264,12 @@ def find_pastefy_answer(message: str) -> str | None:
         normalized = normalize_knowledge_text(value)
         return [w for w in re.findall(r"[a-z0-9]{2,}", normalized) if w not in stopwords]
 
-    # Tạo chỉ mục một lần cho mỗi bộ dữ liệu Pastefy; không quét lại toàn kho để tính IDF ở mỗi câu hỏi.
     source_id = id(entries)
     if _knowledge_index["source_id"] != source_id:
         documents = []
         document_frequency = {}
-        for item in entries:
+        postings = {}
+        for index, item in enumerate(entries):
             searchable = " ".join(
                 [item.get("question", "")] +
                 item.get("aliases", []) +
@@ -277,12 +277,18 @@ def find_pastefy_answer(message: str) -> str | None:
             )
             doc_terms = terms(searchable)
             doc_tokens = set(doc_terms)
-            documents.append((doc_terms, doc_tokens))
+            doc_bigrams = set(zip(doc_terms, doc_terms[1:]))
+            tag_tokens = set(terms(" ".join(item.get("tags", []))))
+            documents.append((doc_terms, doc_tokens, doc_bigrams, tag_tokens))
             for token in doc_tokens:
                 document_frequency[token] = document_frequency.get(token, 0) + 1
-        _knowledge_index["source_id"] = source_id
-        _knowledge_index["documents"] = documents
-        _knowledge_index["df"] = document_frequency
+                postings.setdefault(token, []).append(index)
+        _knowledge_index.update({
+            "source_id": source_id,
+            "documents": documents,
+            "df": document_frequency,
+            "postings": postings,
+        })
 
     query_terms = terms(message)
     query_tokens = set(query_terms)
@@ -290,23 +296,30 @@ def find_pastefy_answer(message: str) -> str | None:
         return None
 
     total_docs = max(1, len(entries))
+    import math
     idf = {
-        token: 1.0 + (total_docs - _knowledge_index["df"].get(token, 0) + 0.5)
-        / (_knowledge_index["df"].get(token, 0) + 0.5)
+        token: math.log1p(
+            (total_docs - _knowledge_index["df"].get(token, 0) + 0.5)
+            / (_knowledge_index["df"].get(token, 0) + 0.5)
+        )
         for token in query_tokens
     }
-    weighted_total = sum(idf.values())
+    weighted_total = sum(idf.values()) or 1.0
     query_norm = normalize_knowledge_text(message)
     query_bigrams = set(zip(query_terms, query_terms[1:]))
-    ranked = []
+    candidates = set()
+    for token in query_tokens:
+        candidates.update(_knowledge_index["postings"].get(token, ()))
 
-    for index, item in enumerate(entries):
-        item_terms, item_tokens = _knowledge_index["documents"][index]
+    ranked = []
+    for index in candidates:
+        item = entries[index]
+        item_terms, item_tokens, item_bigrams, tag_tokens = _knowledge_index["documents"][index]
         overlap = query_tokens & item_tokens
         if not overlap:
             continue
 
-        coverage = sum(idf[token] for token in overlap) / max(0.001, weighted_total)
+        coverage = sum(idf[token] for token in overlap) / weighted_total
         precision = len(overlap) / max(1, len(item_tokens))
         f1 = 2 * coverage * precision / max(0.001, coverage + precision)
         question_norm = normalize_knowledge_text(item.get("question", ""))
@@ -317,11 +330,12 @@ def find_pastefy_answer(message: str) -> str | None:
              or query_norm in normalize_knowledge_text(alias) else 0.0)
             for alias in aliases
         ) if aliases else 0.0
-        item_bigrams = set(zip(item_terms, item_terms[1:]))
         phrase = len(query_bigrams & item_bigrams) / max(1, len(query_bigrams | item_bigrams))
-        tag_tokens = set(terms(" ".join(item.get("tags", []))))
         tag_hits = len(query_tokens & tag_tokens) / max(1, len(query_tokens))
-        score = 0.58 * coverage + 0.16 * f1 + 0.12 * phrase + 0.09 * exact_phrase + 0.05 * alias_phrase
+        score = (
+            0.55 * coverage + 0.16 * f1 + 0.14 * phrase
+            + 0.10 * exact_phrase + 0.05 * alias_phrase
+        )
         score += min(0.06, tag_hits * 0.06)
         ranked.append((min(1.0, score), len(overlap), index, item))
 
@@ -329,7 +343,7 @@ def find_pastefy_answer(message: str) -> str | None:
         return None
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
     best_score, best_overlap, _, best = ranked[0]
-    threshold = 0.48 if len(query_tokens) >= 3 else 0.64
+    threshold = 0.43 if len(query_tokens) >= 3 else 0.58
     if best_score < threshold or best_overlap < min(2, len(query_tokens)):
         return None
 
