@@ -617,13 +617,13 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
 
     # Kỹ năng chắc chắn (tính toán, chẩn đoán lỗi, viết code) được ưu tiên.
     local = make_reply(original, memories, history)
+    # Chỉ giữ tác vụ đơn giản ở offline; câu hỏi kiến thức, lập trình
+    # và phân tích sẽ được đưa cho mô hình trước nếu đã cấu hình.
     obvious_offline = (
-        bool(offline_expert_reply(original, history))
-        or bool(re.fullmatch(r"[\d\s.+\-*/()%]+", original))
+        bool(re.fullmatch(r"[\d\s.+\-*/()%]+", original))
         or any(term in text for term in (
             "xin chào", "chào", "hello", "hey", "cảm ơn", "thanks",
             "kể chuyện cười", "làm mình cười", "nhớ rằng", "ghi nhớ",
-            "viết code", "viết mã", "tạo code", "tạo mã",
         ))
     )
     if obvious_offline:
