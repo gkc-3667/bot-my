@@ -256,7 +256,7 @@ def find_pastefy_answer(message: str) -> str | None:
         return None
 
     answer = best["answer"].replace("@everyone", "@ everyone").replace("@here", "@ here")
-    return ("📚 **Mình tìm được trong kho kiến thức:**\\n" + answer)[:1750]
+    return ("📚 **Mình tìm được trong kho kiến thức:**\n" + answer)[:1750]
 
 
 def run_web_search(query: str, limit: int = 6):
@@ -452,7 +452,7 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     local = make_reply(original, memories, history)
     obvious_offline = (
         bool(offline_expert_reply(original, history))
-        or bool(re.fullmatch(r"[\\d\\s.+\\-*/()%]+", original))
+        or bool(re.fullmatch(r"[\d\s.+\-*/()%]+", original))
         or any(term in text for term in (
             "xin chào", "chào", "hello", "hey", "cảm ơn", "thanks",
             "kể chuyện cười", "làm mình cười", "nhớ rằng", "ghi nhớ",
