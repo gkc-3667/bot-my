@@ -1161,3 +1161,20 @@ async def on_message(message: discord.Message):
             )
         except (discord.Forbidden, discord.HTTPException):
             pass
+
+if __name__ == "__main__":
+    if not TOKEN:
+        raise RuntimeError(
+            "Thiếu DISCORD_TOKEN. Hãy thêm DISCORD_TOKEN vào Environment/.env của Wispbyte."
+        )
+
+    # Health endpoint chạy nền; Discord client giữ tiến trình chính hoạt động.
+    web_thread = threading.Thread(
+        target=run_web,
+        name="gkc-health-server",
+        daemon=True,
+    )
+    web_thread.start()
+
+    print("[GKC]-AI đang khởi động Discord client...")
+    client.run(TOKEN)
