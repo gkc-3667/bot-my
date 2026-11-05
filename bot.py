@@ -940,3 +940,66 @@ async def xoabonho(interaction: discord.Interaction):
 async def on_message(message: discord.Message):
     if message.author.bot or message.guild is None:
         return
+
+    configured_channel = get_ai_channel(message.guild.id)
+    if configured_channel != message.channel.id:
+        return
+
+    # Phản ứng nhẹ vào tin nhắn người dùng; không gửi thêm tin nhắn rác.
+    lowered = message.content.lower()
+    if any(word in lowered for word in ("haha", "😂", "🤣", "đùa", "buồn cười")):
+        user_reaction = "😂"
+    elif any(word in lowered for word in ("cảm ơn", "thanks", "thank you")):
+        user_reaction = "❤️"
+    elif "?" in message.content or any(word in lowered for word in ("giúp", "lỗi", "sao", "tại sao")):
+        user_reaction = "👀"
+    else:
+        user_reaction = "👋"
+
+    try:
+        await message.add_reaction(user_reaction)
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
+    try:
+        history = get_chat_history(message.author.id, limit=8)
+        memories = get_memories(message.author.id, limit=10)
+        explicit_memory = extract_explicit_memory(message.content)
+
+        if explicit_memory:
+            save_memory(message.author.id, explicit_memory)
+            limit_user_memories(message.author.id)
+            reply = "🧠 Mình đã ghi nhớ điều bạn vừa dặn. Khi cần, mình sẽ dùng nó trong những cuộc trò chuyện sau nhé!"
+        else:
+            reply = await smart_reply(message.content, memories, history)
+
+        save_chat_turn(message.author.id, message.content, reply)
+        sent_messages = []
+        for chunk in split_discord_message(reply):
+            sent = await message.reply(
+                chunk,
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            sent_messages.append(sent)
+
+        # Bot cũng thả reaction vào câu trả lời của chính nó.
+        if sent_messages:
+            bot_reaction = "✨" if any(mark in reply for mark in ("📚", "🧠", "**")) else "🤖"
+            try:
+                await sent_messages[-1].add_reaction(bot_reaction)
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+    except discord.Forbidden:
+        print("Không đủ quyền đọc/gửi tin nhắn hoặc thả reaction trong kênh AI.")
+    except Exception as exc:
+        print(f"on_message failed: {type(exc).__name__}: {exc}")
+        try:
+            await message.reply(
+                "Mình vừa gặp trục trặc khi xử lý tin nhắn. Bạn thử gửi lại sau nhé.",
+                mention_author=False,
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            pass
