@@ -24,7 +24,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
 PASTEFY_RAW_URL = os.getenv("PASTEFY_RAW_URL", "").strip()
 
-# Kho kiến thức Pastefy: tải lại tối đa mỗi 5 phút để giảm băng thông và độ trễ.
+# Kho kiến thức Pastefy: hỗ trợ tối đa 5.000 Q&A, tải lại tối đa mỗi 5 phút.
 _pastefy_cache = {"expires": 0.0, "entries": []}
 _pastefy_lock = threading.Lock()
 
@@ -149,7 +149,7 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
                         "tags": [str(x)[:80] for x in tags[:20]] if isinstance(tags, list) else [],
                     })
             if entries:
-                return entries[:500]
+                return entries[:5000]
     except (ValueError, TypeError, AttributeError):
         pass
 
@@ -186,7 +186,7 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
         elif question and answer_lines and stripped and stripped != "---":
             answer_lines.append(stripped)
     flush()
-    return entries[:500]
+    return entries[:5000]
 
 def load_pastefy_knowledge(force: bool = False) -> list[dict]:
     if not PASTEFY_RAW_URL:
@@ -208,11 +208,11 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
                 allow_redirects=False,
             )
             response.raise_for_status()
-            raw = response.text[:500_000]
+            raw = response.text[:2_000_000]
             entries = parse_pastefy_knowledge(raw)
             _pastefy_cache["entries"] = entries
             _pastefy_cache["expires"] = now + 300
-            print(f"Pastefy knowledge loaded: {len(entries)} Q&A entries")
+            print(f"Pastefy knowledge loaded: {len(entries)}/5000 Q&A entries")
             return entries
         except Exception as exc:
             print(f"Pastefy knowledge unavailable: {type(exc).__name__}: {exc}")
