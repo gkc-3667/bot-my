@@ -196,8 +196,25 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
             return _pastefy_cache["entries"]
 
 
+def contextualize_followup(message: str, history=None) -> str:
+    """Gắn câu hỏi ngắn tiếp nối với chủ đề gần nhất, không thay đổi câu hỏi độc lập."""
+    history = history or []
+    text = message.strip()
+    low = normalize_knowledge_text(text)
+    followup_markers = (
+        "con cai do", "con no", "the con", "vay con", "noi ro hon",
+        "giai thich them", "tai sao lai vay", "y minh la", "cach do",
+        "no hoat dong the nao", "lam tiep", "tiep di",
+    )
+    if len(text.split()) <= 9 or any(marker in low for marker in followup_markers):
+        previous_user = next((content for role, content in reversed(history) if role == "user"), "")
+        if previous_user and normalize_knowledge_text(previous_user) not in low:
+            return (previous_user[:350] + " " + text)[:650]
+    return text
+
+
 def find_pastefy_answer(message: str) -> str | None:
-    """Xếp hạng Q&A bằng token, cụm từ và độ bao phủ; chỉ trả lời khi đủ tự tin."""
+    """Xếp hạng kiến thức và ghép tối đa 3 mục liên quan; không đoán khi điểm thấp."""
     entries = load_pastefy_knowledge()
     if not entries:
         return None
@@ -222,16 +239,14 @@ def find_pastefy_answer(message: str) -> str | None:
     query_bigrams = set(zip(query_terms, query_terms[1:]))
     ranked = []
     for index, item in enumerate(entries):
-        question = item["question"]
-        q_norm = normalize_knowledge_text(question)
-        q_terms = terms(question)
+        q_norm = normalize_knowledge_text(item["question"])
+        q_terms = terms(item["question"])
         q_tokens = set(q_terms)
         if not q_tokens:
             continue
         overlap = len(query_tokens & q_tokens)
         if not overlap:
             continue
-
         precision = overlap / len(query_tokens)
         recall = overlap / len(q_tokens)
         f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
@@ -247,17 +262,31 @@ def find_pastefy_answer(message: str) -> str | None:
         return None
     ranked.sort(key=lambda row: (row[0], row[1]), reverse=True)
     best_score, best_overlap, _, best = ranked[0]
-    second_score = ranked[1][0] if len(ranked) > 1 else 0.0
-
     threshold = 0.56 if len(query_tokens) >= 2 else 0.82
     if best_score < threshold or best_overlap < min(2, len(query_tokens)):
         return None
-    if second_score and best_score - second_score < 0.035:
+    if len(ranked) > 1 and best_score - ranked[1][0] < 0.035:
+        # Nếu hai câu hỏi gần như ngang điểm, không chọn bừa một đáp án.
         return None
 
-    answer = best["answer"].replace("@everyone", "@ everyone").replace("@here", "@ here")
-    return ("📚 **Mình tìm được trong kho kiến thức:**\n" + answer)[:1750]
+    selected = []
+    seen_answers = set()
+    for score, overlap, _, item in ranked:
+        if len(selected) >= 3 or score < max(threshold, best_score * 0.72):
+            continue
+        answer = item["answer"].strip()
+        fingerprint = normalize_knowledge_text(answer)[:180]
+        if fingerprint in seen_answers:
+            continue
+        seen_answers.add(fingerprint)
+        selected.append((item["question"], answer))
 
+    parts = ["📚 **Mình tổng hợp từ kho kiến thức:**"]
+    for question, answer in selected:
+        safe_answer = answer.replace("@everyone", "@ everyone").replace("@here", "@ here")
+        parts.append(f"**{question[:180]}**\n{safe_answer[:850]}")
+    parts.append("_Mình chỉ ghép các mục có độ liên quan cao; nếu thiếu chi tiết, bạn có thể hỏi rõ hơn._")
+    return "\n\n".join(parts)[:1750]
 
 def run_web_search(query: str, limit: int = 6):
     """Search the public web without an API key."""
@@ -464,7 +493,8 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
 
     # Chỉ dùng Pastefy khi tìm được câu hỏi đủ tương đồng; không đoán khi điểm thấp.
     try:
-        remote_answer = await asyncio.to_thread(find_pastefy_answer, original)
+        knowledge_query = contextualize_followup(original, history)
+        remote_answer = await asyncio.to_thread(find_pastefy_answer, knowledge_query)
         if remote_answer:
             return remote_answer
     except Exception as exc:
