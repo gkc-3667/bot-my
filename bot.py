@@ -189,39 +189,69 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
     return entries[:80000]
 
 def load_pastefy_knowledge(force: bool = False) -> list[dict]:
-    if not PASTEFY_RAW_URL:
-        return []
+    """Nạp tối đa 80.000 Q&A từ nhiều URL Raw (GitHub/Pastefy), cache 5 phút."""
     now = time.monotonic()
     with _pastefy_lock:
         if not force and now < _pastefy_cache["expires"]:
             return _pastefy_cache["entries"]
-        try:
-            from urllib.parse import urlparse
-            parsed = urlparse(PASTEFY_RAW_URL)
-            host = (parsed.hostname or "").lower()
-            if parsed.scheme != "https" or not (host == "pastefy.app" or host.endswith(".pastefy.app")):
-                raise ValueError("PASTEFY_RAW_URL phải là liên kết HTTPS từ pastefy.app.")
-            response = requests.get(
-                PASTEFY_RAW_URL,
-                timeout=(3, 6),
-                headers={"User-Agent": "GKCAI-Knowledge/1.0"},
-                allow_redirects=False,
-            )
-            response.raise_for_status()
-            content_length = int(response.headers.get("Content-Length", "0") or 0)
-            if content_length > 18_000_000:
-                raise ValueError("Kho Pastefy vượt giới hạn 18 MB để bảo vệ RAM của bot.")
-            raw = response.text[:18_000_000]
-            entries = parse_pastefy_knowledge(raw)
-            _pastefy_cache["entries"] = entries
-            _pastefy_cache["expires"] = now + 300
-            print(f"Pastefy knowledge loaded: {len(entries)}/80000 Q&A entries")
-            return entries
-        except Exception as exc:
-            print(f"Pastefy knowledge unavailable: {type(exc).__name__}: {exc}")
-            # Dùng bản cache cũ nếu Pastefy tạm thời không truy cập được.
-            _pastefy_cache["expires"] = now + 60
-            return _pastefy_cache["entries"]
+
+        raw_urls = os.getenv("KNOWLEDGE_RAW_URLS", "").strip()
+        urls = [u.strip() for u in re.split(r"[,;\\n]+", raw_urls) if u.strip()]
+        if not urls and PASTEFY_RAW_URL:
+            urls = [PASTEFY_RAW_URL]
+        if not urls:
+            return []
+
+        merged = []
+        seen = set()
+        total_bytes = 0
+        for url in urls[:8]:
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                host = (parsed.hostname or "").lower()
+                allowed = (
+                    parsed.scheme == "https"
+                    and (host == "pastefy.app" or host.endswith(".pastefy.app")
+                         or host == "raw.githubusercontent.com")
+                )
+                if not allowed:
+                    print(f"Knowledge source skipped (unsupported host): {host}")
+                    continue
+                response = requests.get(
+                    url, timeout=(4, 12),
+                    headers={"User-Agent": "GKCAI-Knowledge/2.0"},
+                    allow_redirects=False,
+                )
+                response.raise_for_status()
+                declared = int(response.headers.get("Content-Length", "0") or 0)
+                if declared and declared > 4_000_000:
+                    print(f"Knowledge source skipped (over 4 MB): {host}")
+                    continue
+                body = response.content
+                total_bytes += len(body)
+                if len(body) > 4_000_000 or total_bytes > 22_000_000:
+                    print("Knowledge loading stopped at the safe size limit.")
+                    break
+                entries = parse_pastefy_knowledge(body.decode(response.encoding or "utf-8", errors="replace"))
+                for item in entries:
+                    key = normalize_knowledge_text(item.get("question", ""))[:300]
+                    if key and key not in seen:
+                        seen.add(key)
+                        merged.append(item)
+                        if len(merged) >= 80000:
+                            break
+                print(f"Knowledge source loaded: {len(entries)} entries from {host}")
+                if len(merged) >= 80000:
+                    break
+            except Exception as exc:
+                print(f"Knowledge source unavailable: {type(exc).__name__}: {exc}")
+
+        if merged:
+            _pastefy_cache["entries"] = merged[:80000]
+        _pastefy_cache["expires"] = now + (300 if merged else 60)
+        print(f"Knowledge loaded: {len(_pastefy_cache['entries'])}/80000 unique Q&A entries")
+        return _pastefy_cache["entries"]
 
 
 def contextualize_followup(message: str, history=None) -> str:
@@ -1023,14 +1053,14 @@ async def xoabonho(interaction: discord.Interaction):
     )
 
 
-@client.tree.command(name="napkho", description="Tải lại kho kiến thức Pastefy và kiểm tra số mục đã nạp")
+@client.tree.command(name="napkho", description="Tải lại kho kiến thức nhiều nguồn và kiểm tra số mục đã nạp")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def napkho(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True, thinking=True)
     entries = await asyncio.to_thread(load_pastefy_knowledge, True)
     if not entries:
         await interaction.followup.send(
-            "Mình chưa nạp được dữ liệu. Hãy kiểm tra biến PASTEFY_RAW_URL và liên kết Raw của Pastefy.",
+            "Mình chưa nạp được dữ liệu. Hãy kiểm tra KNOWLEDGE_RAW_URLS (tối đa 8 liên kết Raw GitHub/Pastefy) hoặc PASTEFY_RAW_URL.",
             ephemeral=True,
         )
         return
@@ -1038,7 +1068,7 @@ async def napkho(interaction: discord.Interaction):
     categories = sum(1 for item in entries if item.get("category"))
     await interaction.followup.send(
         f"📚 Đã nạp **{len(entries):,} bản ghi Q&A** từ Pastefy. "
-        f"Giới hạn hiện tại là 80.000 bản ghi / 18 MB. "
+        f"Giới hạn hiện tại là 80.000 bản ghi từ tối đa 8 nguồn (tổng tối đa 22 MB). "
         "Lưu ý: số bản ghi không đồng nghĩa với số kiến thức độc lập.",
         ephemeral=True,
     )
