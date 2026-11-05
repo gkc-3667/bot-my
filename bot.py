@@ -24,7 +24,7 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 DB_PATH = os.getenv("BOT_DB_PATH", "bot3_memory.sqlite3")
 PASTEFY_RAW_URL = os.getenv("PASTEFY_RAW_URL", "").strip()
 
-# Kho kiến thức Pastefy: hỗ trợ tối đa 60.000 Q&A (đủ bộ 50.000), cache 5 phút.
+# Kho kiến thức Pastefy: hỗ trợ tối đa 80.000 Q&A, cache 5 phút.
 _pastefy_cache = {"expires": 0.0, "entries": []}
 _pastefy_lock = threading.Lock()
 
@@ -149,7 +149,7 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
                         "tags": [str(x)[:80] for x in tags[:20]] if isinstance(tags, list) else [],
                     })
             if entries:
-                return entries[:60000]
+                return entries[:80000]
     except (ValueError, TypeError, AttributeError):
         pass
 
@@ -186,7 +186,7 @@ def parse_pastefy_knowledge(raw: str) -> list[dict]:
         elif question and answer_lines and stripped and stripped != "---":
             answer_lines.append(stripped)
     flush()
-    return entries[:60000]
+    return entries[:80000]
 
 def load_pastefy_knowledge(force: bool = False) -> list[dict]:
     if not PASTEFY_RAW_URL:
@@ -215,7 +215,7 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
             entries = parse_pastefy_knowledge(raw)
             _pastefy_cache["entries"] = entries
             _pastefy_cache["expires"] = now + 300
-            print(f"Pastefy knowledge loaded: {len(entries)}/60000 Q&A entries")
+            print(f"Pastefy knowledge loaded: {len(entries)}/80000 Q&A entries")
             return entries
         except Exception as exc:
             print(f"Pastefy knowledge unavailable: {type(exc).__name__}: {exc}")
@@ -1024,7 +1024,7 @@ async def napkho(interaction: discord.Interaction):
     categories = sum(1 for item in entries if item.get("category"))
     await interaction.followup.send(
         f"📚 Đã nạp **{len(entries):,} bản ghi Q&A** từ Pastefy. "
-        f"Giới hạn hiện tại là 60.000 bản ghi / 18 MB. "
+        f"Giới hạn hiện tại là 80.000 bản ghi / 18 MB. "
         "Lưu ý: số bản ghi không đồng nghĩa với số kiến thức độc lập.",
         ephemeral=True,
     )
