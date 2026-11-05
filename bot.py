@@ -196,7 +196,7 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
             return _pastefy_cache["entries"]
 
         raw_urls = os.getenv("KNOWLEDGE_RAW_URLS", "").strip()
-        urls = [u.strip() for u in re.split(r"[,;\\n]+", raw_urls) if u.strip()]
+        urls = [u.strip() for u in re.split(r"[,;\n]+", raw_urls) if u.strip()]
         if not urls and PASTEFY_RAW_URL:
             urls = [PASTEFY_RAW_URL]
         if not urls:
@@ -637,7 +637,7 @@ async def smart_reply(message: str, memories: list[str], history=None) -> str:
     except Exception as exc:
         print(f"Knowledge lookup failed: {type(exc).__name__}: {exc}")
 
-    if not should_search_message(original):
+    if not (should_search_message(original) or should_auto_search_message(original)):
         return local[:1800]
 
     query = original
