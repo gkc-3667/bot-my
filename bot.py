@@ -171,10 +171,16 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
         if not force and now < _pastefy_cache["expires"]:
             return _pastefy_cache["entries"]
         try:
+            from urllib.parse import urlparse
+            parsed = urlparse(PASTEFY_RAW_URL)
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme != "https" or not (host == "pastefy.app" or host.endswith(".pastefy.app")):
+                raise ValueError("PASTEFY_RAW_URL phải là liên kết HTTPS từ pastefy.app.")
             response = requests.get(
                 PASTEFY_RAW_URL,
                 timeout=(3, 6),
                 headers={"User-Agent": "GKCAI-Knowledge/1.0"},
+                allow_redirects=False,
             )
             response.raise_for_status()
             raw = response.text[:500_000]
