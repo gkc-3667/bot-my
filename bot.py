@@ -241,8 +241,11 @@ def contextualize_followup(message: str, history=None) -> str:
         return (previous_user[:300] + " | Câu hỏi tiếp nối: " + text)[:650]
     return text
 
+_knowledge_index = {"source_id": None, "documents": [], "df": {}}
+
+
 def find_pastefy_answer(message: str) -> str | None:
-    """Tìm Q&A bằng điểm có trọng số, bí danh và từ khóa; chỉ ghép mục đủ liên quan."""
+    """Tìm Q&A nhanh hơn: lập chỉ mục một lần cho 5.000 mục, tái sử dụng giữa các lượt."""
     entries = load_pastefy_knowledge()
     if not entries:
         return None
@@ -251,58 +254,70 @@ def find_pastefy_answer(message: str) -> str | None:
         "la", "gi", "cua", "cho", "minh", "toi", "ban", "voi", "mot", "nhung",
         "cac", "the", "nao", "sao", "hay", "giup", "ve", "trong", "co", "khong",
         "duoc", "nhe", "a", "thi", "va", "is", "what", "how", "does", "please",
-        "an", "to", "of", "in", "on", "for", "with", "vay", "thi", "la",
+        "an", "to", "of", "in", "on", "for", "with", "vay", "thi",
     }
 
     def terms(value):
         normalized = normalize_knowledge_text(value)
         return [w for w in re.findall(r"[a-z0-9]{2,}", normalized) if w not in stopwords]
 
+    # Tạo chỉ mục một lần cho mỗi bộ dữ liệu Pastefy; không quét lại toàn kho để tính IDF ở mỗi câu hỏi.
+    source_id = id(entries)
+    if _knowledge_index["source_id"] != source_id:
+        documents = []
+        document_frequency = {}
+        for item in entries:
+            searchable = " ".join(
+                [item.get("question", "")] +
+                item.get("aliases", []) +
+                item.get("tags", [])
+            )
+            doc_terms = terms(searchable)
+            doc_tokens = set(doc_terms)
+            documents.append((doc_terms, doc_tokens))
+            for token in doc_tokens:
+                document_frequency[token] = document_frequency.get(token, 0) + 1
+        _knowledge_index["source_id"] = source_id
+        _knowledge_index["documents"] = documents
+        _knowledge_index["df"] = document_frequency
+
     query_terms = terms(message)
     query_tokens = set(query_terms)
     if not query_tokens:
         return None
 
-    # IDF giảm ảnh hưởng của từ quá phổ biến trong toàn bộ kho.
-    document_tokens = []
-    for item in entries:
-        text = " ".join([item.get("question", "")] + item.get("aliases", []) + item.get("tags", []))
-        document_tokens.append(set(terms(text)))
-    total_docs = max(1, len(document_tokens))
-    idf = {}
-    for token in query_tokens:
-        containing = sum(1 for doc in document_tokens if token in doc)
-        idf[token] = 1.0 + (total_docs - containing + 0.5) / (containing + 0.5)
-
+    total_docs = max(1, len(entries))
+    idf = {
+        token: 1.0 + (total_docs - _knowledge_index["df"].get(token, 0) + 0.5)
+        / (_knowledge_index["df"].get(token, 0) + 0.5)
+        for token in query_tokens
+    }
+    weighted_total = sum(idf.values())
+    query_norm = normalize_knowledge_text(message)
     query_bigrams = set(zip(query_terms, query_terms[1:]))
     ranked = []
+
     for index, item in enumerate(entries):
-        question = item.get("question", "")
-        aliases = item.get("aliases", [])
-        tags = item.get("tags", [])
-        searchable = " ".join([question] + aliases + tags)
-        item_terms = terms(searchable)
-        item_tokens = set(item_terms)
+        item_terms, item_tokens = _knowledge_index["documents"][index]
         overlap = query_tokens & item_tokens
         if not overlap:
             continue
 
-        weighted_total = sum(idf.get(token, 1.0) for token in query_tokens)
-        weighted_overlap = sum(idf.get(token, 1.0) for token in overlap)
-        coverage = weighted_overlap / max(0.001, weighted_total)
+        coverage = sum(idf[token] for token in overlap) / max(0.001, weighted_total)
         precision = len(overlap) / max(1, len(item_tokens))
         f1 = 2 * coverage * precision / max(0.001, coverage + precision)
-
-        question_norm = normalize_knowledge_text(question)
-        query_norm = normalize_knowledge_text(message)
+        question_norm = normalize_knowledge_text(item.get("question", ""))
+        aliases = item.get("aliases", [])
         exact_phrase = 1.0 if query_norm in question_norm or question_norm in query_norm else 0.0
         alias_phrase = max(
-            (1.0 if normalize_knowledge_text(alias) in query_norm or query_norm in normalize_knowledge_text(alias) else 0.0)
+            (1.0 if normalize_knowledge_text(alias) in query_norm
+             or query_norm in normalize_knowledge_text(alias) else 0.0)
             for alias in aliases
         ) if aliases else 0.0
         item_bigrams = set(zip(item_terms, item_terms[1:]))
         phrase = len(query_bigrams & item_bigrams) / max(1, len(query_bigrams | item_bigrams))
-        tag_hits = len(query_tokens & set(terms(" ".join(tags)))) / max(1, len(query_tokens))
+        tag_tokens = set(terms(" ".join(item.get("tags", []))))
+        tag_hits = len(query_tokens & tag_tokens) / max(1, len(query_tokens))
         score = 0.58 * coverage + 0.16 * f1 + 0.12 * phrase + 0.09 * exact_phrase + 0.05 * alias_phrase
         score += min(0.06, tag_hits * 0.06)
         ranked.append((min(1.0, score), len(overlap), index, item))
@@ -315,7 +330,6 @@ def find_pastefy_answer(message: str) -> str | None:
     if best_score < threshold or best_overlap < min(2, len(query_tokens)):
         return None
 
-    # Câu ngắn có hai ý định gần ngang nhau thì hỏi lại thay vì chọn ngẫu nhiên.
     if len(query_tokens) <= 3 and len(ranked) > 1:
         second_score, second_overlap = ranked[1][0], ranked[1][1]
         if second_score >= threshold and best_score - second_score < 0.025 and second_overlap >= best_overlap:
@@ -336,7 +350,6 @@ def find_pastefy_answer(message: str) -> str | None:
 
     if not selected:
         return None
-
     parts = ["📚 **Mình tìm được thông tin phù hợp trong kho kiến thức:**"]
     for question, answer, score in selected:
         safe_answer = answer.replace("@everyone", "@ everyone").replace("@here", "@ here")
