@@ -1110,6 +1110,18 @@ async def napkho(interaction: discord.Interaction):
     )
 
 
+@client.tree.command(name="gkcstatus", description="Kiểm tra trạng thái bộ não mô hình GKC")
+async def gkcstatus(interaction: discord.Interaction):
+    if model_is_configured():
+        status = "Đã có URL máy chủ và tên mô hình trong Environment. Lệnh này chưa kiểm tra máy chủ có đang phản hồi hay không."
+    else:
+        status = "Chưa kết nối mô hình ngôn ngữ riêng. Bot hiện dùng bộ nhớ, kho kiến thức, kỹ năng offline và tìm kiếm web dự phòng."
+    await interaction.response.send_message(
+        f"**Trạng thái [GKC]-AI**\n{status}",
+        ephemeral=True,
+    )
+
+
 @client.event
 async def on_message(message: discord.Message):
     if message.author.bot or message.guild is None:
