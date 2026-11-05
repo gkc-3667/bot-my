@@ -225,12 +225,12 @@ def load_pastefy_knowledge(force: bool = False) -> list[dict]:
                 )
                 response.raise_for_status()
                 declared = int(response.headers.get("Content-Length", "0") or 0)
-                if declared and declared > 4_000_000:
-                    print(f"Knowledge source skipped (over 4 MB): {host}")
+                if declared and declared > 18_000_000:
+                    print(f"Knowledge source skipped (over 18 MB): {host}")
                     continue
                 body = response.content
                 total_bytes += len(body)
-                if len(body) > 4_000_000 or total_bytes > 22_000_000:
+                if len(body) > 18_000_000 or total_bytes > 22_000_000:
                     print("Knowledge loading stopped at the safe size limit.")
                     break
                 entries = parse_pastefy_knowledge(body.decode(response.encoding or "utf-8", errors="replace"))
@@ -584,7 +584,7 @@ def search_images(query: str, limit: int = 3):
 
 
 async def smart_reply(message: str, memories: list[str], history=None) -> str:
-    """Trò chuyện mặc định; chỉ tra cứu web khi người dùng yêu cầu rõ ràng."""
+    """Trò chuyện, tra kho Q&A và tự tìm web khi gặp câu hỏi kiến thức chưa có đáp án offline."""
     history = history or []
     original = message.strip()
     text = original.lower()
@@ -1073,7 +1073,7 @@ async def xoabonho(interaction: discord.Interaction):
     )
 
 
-@client.tree.command(name="napkho", description="Tải lại kho kiến thức nhiều nguồn và kiểm tra số mục đã nạp")
+@client.tree.command(name="napkho", description="Tải lại kho kiến thức và kiểm tra số mục đã nạp")
 @app_commands.checks.has_permissions(manage_guild=True)
 async def napkho(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True, thinking=True)
@@ -1088,7 +1088,7 @@ async def napkho(interaction: discord.Interaction):
     categories = sum(1 for item in entries if item.get("category"))
     await interaction.followup.send(
         f"📚 Đã nạp **{len(entries):,} bản ghi Q&A** từ Pastefy. "
-        f"Giới hạn hiện tại là 80.000 bản ghi từ tối đa 8 nguồn (tổng tối đa 22 MB). "
+        f"Giới hạn hiện tại là 80.000 bản ghi, tối đa 8 nguồn, mỗi nguồn 18 MB và tổng 22 MB. "
         "Lưu ý: số bản ghi không đồng nghĩa với số kiến thức độc lập.",
         ephemeral=True,
     )
